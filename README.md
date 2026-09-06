@@ -118,11 +118,15 @@ album artists against the embedded artist credits, and only imports
 **confident matches**: the name matched and at least one of your albums for
 that artist exists in the candidate's discography (this is also how same-named
 artists are disambiguated). Owned albums are marked in the same pass.
-Everything without a confident match is listed at the end — resolve those by
-running "sync with mpd" in the web UI with "only new artists" checked, which
-uses the live API's proper search scoring and skips everything the import
-already handled. Discogs data isn't in the dump; it's merged in per artist on
-the next refresh.
+The dump contains no release-level titles, so the importer matches by
+normalized group title only. After importing, run **one full sync with "only
+new artists" unchecked**: tracked artists resolve locally (no API searches),
+and any artist whose albums didn't all match gets refetched live — including
+release-title aliases, so reissue-titled rips ("Album: Edition 2004") heal
+automatically. Artists the import skipped entirely are resolved by the same
+pass via live search. After that, routine syncs with "only new artists"
+checked are the cheap default. Discogs data isn't in the dump either; it's
+merged in per artist on the next refresh.
 
 ### Syncing your local library (push, without -mpd)
 
