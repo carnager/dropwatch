@@ -230,15 +230,42 @@ const VIEWS = ["artists", "library", "lookup"];
 let currentView = "artists";
 let lastListView = "artists"; // where "back" from an artist page returns to
 
-function showView(name) {
+// Views live in the URL hash (#artists, #library, #lookup, #artist/<mbid>),
+// so browser back/forward work and artist pages are bookmarkable. All
+// navigation goes through the hash; render() reacts to hashchange.
+function render(name) {
   for (const v of VIEWS) $(v + "View").classList.toggle("hidden", v !== name);
   $("artistView").classList.toggle("hidden", name !== "artist");
   document.querySelectorAll("nav .pill").forEach(p =>
     p.classList.toggle("on", p.dataset.view === name));
-  if (name !== "artist") { currentView = name; lastListView = name; }
-  if (name === "artists") loadArtists();
-  if (name === "library") loadLibrary();
+  currentView = name;
+  if (name !== "artist") lastListView = name;
 }
+
+function showView(name) { // navigate: creates a history entry via the hash
+  if (name === location.hash.slice(1)) route();
+  else location.hash = name;
+}
+
+function route() {
+  const hash = location.hash.slice(1) || "artists";
+  const artistMatch = hash.match(/^artist\/(.+)$/);
+  if (artistMatch) {
+    render("artist");
+    const id = decodeURIComponent(artistMatch[1]);
+    if (!currentArtist || currentArtist.id !== id) {
+      loadArtist({ id, name: artistNames[id] || "…" });
+    }
+    return;
+  }
+  render(VIEWS.includes(hash) ? hash : "artists");
+  if (currentView === "artists") loadArtists();
+  if (currentView === "library") loadLibrary();
+}
+window.addEventListener("hashchange", route);
+
+const artistNames = {}; // id → name hints so headers render before the fetch
+
 document.querySelectorAll("nav .pill").forEach(p => {
   p.onclick = () => showView(p.dataset.view);
 });
@@ -505,9 +532,18 @@ function renderReleases() {
   if (!any) box.appendChild(el("div", "empty", "Nothing to show."));
 }
 
-async function openArtist(a, refresh = false) {
+function openArtist(a, refresh = false) {
+  artistNames[a.id] = a.name;
+  if (refresh || location.hash === "#artist/" + encodeURIComponent(a.id)) {
+    loadArtist(a, refresh); // same page: reload without a new history entry
+  } else {
+    location.hash = "artist/" + encodeURIComponent(a.id); // route() loads it
+  }
+}
+
+async function loadArtist(a, refresh = false) {
   currentArtist = a;
-  showView("artist");
+  render("artist");
   $("artistName").textContent = a.name;
   $("artistCounts").textContent = "";
   $("releases").innerHTML = "";
@@ -522,6 +558,8 @@ async function openArtist(a, refresh = false) {
     releases = data.releases;
     allArtists = null; // counts may have changed after a fetch
     $("artistName").textContent = data.artist.name;
+    artistNames[data.artist.id] = data.artist.name;
+    currentArtist = { id: data.artist.id, name: data.artist.name };
     status.classList.add("hidden");
     renderReleases();
   } catch (err) {
@@ -675,7 +713,7 @@ api("/api/config").then(c => {
   poll(); // resume progress display if a sync is already running
 }).catch(() => {});
 
-showView("artists");
+route();
 </script>
 </body>
 </html>
