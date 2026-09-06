@@ -245,7 +245,37 @@ func (s *Server) fetchAndStore(ctx context.Context, mbid string) (model.Artist, 
 	if err := s.store.UpsertArtist(artist); err != nil {
 		return artist, err
 	}
-	return artist, s.store.SaveReleaseGroups(mbid, merged)
+	if err := s.store.SaveReleaseGroups(mbid, merged); err != nil {
+		return artist, err
+	}
+
+	// Release titles differ from their group titles (reissues, regional
+	// names). Storing them as aliases lets syncs match a library album
+	// against any version of a release group.
+	releases, err := s.mb.ReleaseAliases(ctx, mbid)
+	if err != nil {
+		log.Printf("release alias fetch failed for %s: %v", artist.Name, err)
+		return artist, nil
+	}
+	known := make(map[string]bool, len(merged))
+	for _, g := range merged {
+		known[g.ID] = true
+	}
+	var aliases []store.Alias
+	for _, r := range releases {
+		if !known[r.ReleaseGroupID] {
+			continue
+		}
+		aliases = append(aliases, store.Alias{
+			RGID:        r.ReleaseGroupID,
+			NormTitle:   model.NormalizeTitle(r.Title),
+			ReleaseMBID: r.ReleaseMBID,
+		})
+	}
+	if err := s.store.SaveAliases(mbid, aliases); err != nil {
+		return artist, err
+	}
+	return artist, nil
 }
 
 func (s *Server) handleDeleteArtist(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,11 @@ func TestNormalizeTitle(t *testing.T) {
 		"Mellon Collie & The Infinite Sadness":   "mellon collie and the infinite sadness",
 		"Mellon Collie and the Infinite Sadness": "mellon collie and the infinite sadness",
 		"…And Justice for All":                   "and justice for all",
+		"Aaliyah: Edition 2004":                  "aaliyah",
+		"One in a Million: Edition 2004":         "one in a million",
+		"Use Your Illusion I - Remastered":       "use your illusion i",
+		"Operation: Mindcrime":                   "operation mindcrime",
+		"Version 2.0":                            "version 2 0",
 	}
 	for in, want := range cases {
 		if got := NormalizeTitle(in); got != want {

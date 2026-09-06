@@ -98,7 +98,15 @@ func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) 
 		}
 	}
 
+	// Resolve locally first: a tracked artist by that exact name needs no
+	// MusicBrainz search, which makes full (non-skip) re-syncs of a large
+	// library nearly free in API calls.
 	mbid := in.MBID
+	if mbid == "" {
+		if a, found, err := s.store.ArtistByName(in.Name); err == nil && found {
+			mbid = a.ID
+		}
+	}
 	if mbid == "" {
 		found, err := s.mb.SearchArtists(ctx, in.Name)
 		if err != nil {
@@ -112,12 +120,14 @@ func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) 
 		mbid = found[0].ID
 	}
 
+	fetchedNow := false
 	lastChecked, err := s.store.LastChecked(mbid)
 	if err == nil && lastChecked.IsZero() {
 		if _, err := s.fetchAndStore(ctx, mbid); err != nil {
 			res.Error = "fetching releases failed: " + err.Error()
 			return res
 		}
+		fetchedNow = true
 	}
 	artist, _, err := s.store.Artist(mbid)
 	if err != nil {
@@ -126,26 +136,74 @@ func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) 
 	}
 	res.Artist = &artist
 
-	groups, err := s.store.ReleaseGroups(mbid)
-	if err != nil {
+	if err := s.matchAlbums(mbid, in.Albums, &res); err != nil {
 		res.Error = err.Error()
 		return res
 	}
-	byNorm := make(map[string]*model.ReleaseGroup, len(groups))
+	// Self-heal: cached data can predate features (release aliases) or be
+	// stale. If albums failed to match against the cache, refetch once and
+	// retry before reporting them unmatched.
+	if len(res.Unmatched) > 0 && !fetchedNow {
+		log.Printf("sync: %s — %d unmatched against cache, refetching sources", in.Name, len(res.Unmatched))
+		if _, err := s.fetchAndStore(ctx, mbid); err != nil {
+			log.Printf("sync: refetch for %s failed: %v", in.Name, err)
+			return res
+		}
+		res.Owned, res.Unmatched, res.Missing = 0, nil, []model.ReleaseGroup{}
+		if err := s.matchAlbums(mbid, in.Albums, &res); err != nil {
+			res.Error = err.Error()
+		}
+	}
+	return res
+}
+
+// matchAlbums marks the library's albums owned against the artist's stored
+// release groups and fills in owned/unmatched/missing on res.
+func (s *Server) matchAlbums(mbid string, albums []syncAlbum, res *syncResult) error {
+	groups, err := s.store.ReleaseGroups(mbid)
+	if err != nil {
+		return err
+	}
+	byNorm := make(map[string][]*model.ReleaseGroup, len(groups))
 	byMBID := make(map[string]*model.ReleaseGroup, len(groups))
+	byID := make(map[string]*model.ReleaseGroup, len(groups))
 	for i := range groups {
-		byNorm[groups[i].NormTitle] = &groups[i]
+		byNorm[groups[i].NormTitle] = append(byNorm[groups[i].NormTitle], &groups[i])
+		byID[groups[i].ID] = &groups[i]
 		if groups[i].MBID != "" {
 			byMBID[groups[i].MBID] = &groups[i]
 		}
 	}
-
-	for _, album := range in.Albums {
-		g, ok := byMBID[album.MBID]
-		if !ok {
-			g, ok = byNorm[model.NormalizeTitle(album.Title)]
+	// Release-title aliases: a library album named after any *version* of a
+	// release group ("Aaliyah: Edition 2004") matches the group itself.
+	aliasNorm := map[string][]*model.ReleaseGroup{}
+	aliasRelMBID := map[string]*model.ReleaseGroup{}
+	if aliases, err := s.store.Aliases(mbid); err == nil {
+		for _, a := range aliases {
+			g, ok := byID[a.RGID]
+			if !ok {
+				continue
+			}
+			aliasNorm[a.NormTitle] = append(aliasNorm[a.NormTitle], g)
+			if a.ReleaseMBID != "" {
+				aliasRelMBID[a.ReleaseMBID] = g
+			}
 		}
-		if !ok {
+	}
+
+	for _, album := range albums {
+		norm := model.NormalizeTitle(album.Title)
+		var matched []*model.ReleaseGroup
+		if g, ok := byMBID[album.MBID]; ok { // release-group MBID tag
+			matched = []*model.ReleaseGroup{g}
+		} else if g, ok := aliasRelMBID[album.MBID]; ok { // release MBID (Subsonic)
+			matched = []*model.ReleaseGroup{g}
+		} else if gs, ok := byNorm[norm]; ok {
+			matched = gs
+		} else if gs, ok := aliasNorm[norm]; ok {
+			matched = gs
+		}
+		if len(matched) == 0 {
 			label := album.Title
 			if label == "" {
 				label = album.MBID
@@ -153,7 +211,10 @@ func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) 
 			res.Unmatched = append(res.Unmatched, label)
 			continue
 		}
-		if g.State != model.StateOwned {
+		for _, g := range preferCanonical(matched) {
+			if g.State == model.StateOwned {
+				continue
+			}
 			if _, err := s.store.SetState(g.ID, model.StateOwned); err != nil {
 				log.Printf("sync: set owned %s: %v", g.ID, err)
 				continue
@@ -170,7 +231,39 @@ func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) 
 			res.Missing = append(res.Missing, g)
 		}
 	}
-	return res
+	return nil
+}
+
+// preferCanonical narrows same-title matches to the most album-like tier so
+// owning the album "One in a Million" marks the album release group(s) — and
+// a same-named MusicBrainz duplicate — but not the single. Tiers: canonical
+// albums, then canonical EPs, then everything else.
+func preferCanonical(matched []*model.ReleaseGroup) []*model.ReleaseGroup {
+	tier := func(g *model.ReleaseGroup) int {
+		if len(g.SecondaryTypes) > 0 {
+			return 2
+		}
+		switch g.PrimaryType {
+		case "Album":
+			return 0
+		case "EP":
+			return 1
+		}
+		return 2
+	}
+	best := 3
+	for _, g := range matched {
+		if t := tier(g); t < best {
+			best = t
+		}
+	}
+	var out []*model.ReleaseGroup
+	for _, g := range matched {
+		if tier(g) == best {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // mpdJob tracks a background MPD sync. A first sync of a large library takes

@@ -7,13 +7,13 @@
 <style>
   :root {
     --bg: #faf9f7; --text: #21201d; --muted: #8a877f; --faint: #b5b2aa;
-    --line: #e7e5e0; --hover: #f1efeb;
+    --line: #e7e5e0; --hover: #f1efeb; --barbg: #e7e5e0;
     --accent: #b3541e; --owned: #4a7c59; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #131312; --text: #d9d6cf; --muted: #7d7a72; --faint: #55534d;
-      --line: #262522; --hover: #1b1a18;
+      --line: #262522; --hover: #1b1a18; --barbg: #262522;
       --accent: #d97a3d; --owned: #6fa87f;
     }
   }
@@ -23,22 +23,15 @@
     font: 15px/1.45 system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 2.2rem 1.25rem 5rem; }
 
-  header { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 2.2rem; }
+  header { display: flex; align-items: center; gap: 1.2rem; margin-bottom: .4rem; flex-wrap: wrap; }
   .wordmark { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
   .wordmark b { color: var(--accent); font-weight: 700; }
-  header .sub { color: var(--muted); font-size: .8rem; }
-
-  .searchbar { display: flex; gap: .6rem; margin-bottom: 2rem; }
-  input[type=search] {
-    flex: 1; padding: .5rem 0; border: 0; border-bottom: 1px solid var(--line);
-    background: transparent; color: var(--text); font: inherit; outline: none;
-  }
-  input[type=search]:focus { border-bottom-color: var(--accent); }
-  input[type=search]::placeholder { color: var(--faint); }
-  input.inline { font-size: .85rem; padding: .2rem 0; max-width: 15rem; flex: 1; }
-  .rel .artist { color: var(--muted); }
+  nav { display: flex; gap: .1rem; }
+  header .spring { flex: 1; }
+  header label { display: inline-flex; align-items: center; gap: .3rem; font-size: .8rem; color: var(--muted); cursor: pointer; }
+  .note { color: var(--muted); font-size: .85rem; margin: .4rem 0 1.4rem; min-height: 1.2em; }
 
   button {
     border: 0; background: transparent; color: var(--muted); font: inherit;
@@ -48,10 +41,28 @@
   button:disabled { color: var(--faint); cursor: default; }
   button.danger { color: var(--accent); }
 
+  .pill {
+    font-size: .78rem; padding: .18rem .6rem; border-radius: 3px;
+    color: var(--muted); border: 1px solid transparent;
+  }
+  .pill.on { color: var(--text); border-color: var(--line); background: var(--hover); }
+
+  input[type=search] {
+    padding: .45rem 0; border: 0; border-bottom: 1px solid var(--line);
+    background: transparent; color: var(--text); font: inherit; outline: none;
+    width: 100%;
+  }
+  input[type=search]:focus { border-bottom-color: var(--accent); }
+  input[type=search]::placeholder { color: var(--faint); }
+
+  .controls { display: flex; align-items: baseline; gap: .5rem; margin: .4rem 0 1.2rem; flex-wrap: wrap; }
+  .controls input[type=search] { flex: 1; min-width: 12rem; }
+
   .sectionhead {
     display: flex; align-items: baseline; justify-content: space-between;
-    border-bottom: 1px solid var(--line); padding-bottom: .4rem; margin-bottom: .2rem;
+    border-bottom: 1px solid var(--line); padding-bottom: .4rem; margin: 1.4rem 0 .2rem;
   }
+  .sectionhead:first-child { margin-top: 0; }
   .sectionhead h2 {
     margin: 0; font-size: .75rem; font-weight: 600; text-transform: uppercase;
     letter-spacing: .09em; color: var(--muted);
@@ -65,26 +76,24 @@
   }
   .row:hover { background: var(--hover); }
   .row .name { font-weight: 500; }
-  .row .dis { color: var(--faint); font-size: .8rem; }
+  .row .dis { color: var(--faint); font-size: .8rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .spring { flex: 1; }
-  .row .frac { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
-  .row .gap { font-family: var(--mono); font-size: .8rem; color: var(--accent); min-width: 5.5em; text-align: right; }
+  .row .bar { width: 72px; height: 3px; background: var(--barbg); border-radius: 2px; align-self: center; flex-shrink: 0; }
+  .row .bar i { display: block; height: 100%; background: var(--owned); border-radius: 2px; }
+  .row .frac { font-family: var(--mono); font-size: .8rem; color: var(--muted); min-width: 4em; text-align: right; }
+  .row .gap { font-family: var(--mono); font-size: .8rem; color: var(--accent); min-width: 6em; text-align: right; }
   .row .gap.done { color: var(--faint); }
 
   .empty { color: var(--muted); padding: 1.5rem 0; font-size: .9rem; }
+  .hint { color: var(--faint); font-size: .82rem; margin-top: 1rem; line-height: 1.6; }
 
-  /* artist page */
+  /* artist detail */
   .crumbs { margin-bottom: 1.6rem; }
   .crumbs button { padding-left: 0; }
   .artisthead { display: flex; align-items: baseline; gap: .9rem; margin-bottom: .3rem; }
   .artisthead h2 { margin: 0; font-size: 1.5rem; letter-spacing: -0.02em; }
   .artisthead .counts { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
-  .filters { display: flex; gap: .2rem; align-items: center; margin: 1rem 0 1.2rem; }
-  .pill {
-    font-size: .78rem; padding: .18rem .6rem; border-radius: 3px;
-    color: var(--muted); border: 1px solid transparent;
-  }
-  .pill.on { color: var(--text); border-color: var(--line); background: var(--hover); }
+  .filters { display: flex; gap: .2rem; align-items: center; margin: 1rem 0 1.2rem; flex-wrap: wrap; }
   .filters .spring { flex: 1; }
 
   .rel {
@@ -94,6 +103,7 @@
   }
   .rel:hover { background: var(--hover); }
   .rel .year { font-family: var(--mono); font-size: .8rem; color: var(--muted); width: 2.9em; flex-shrink: 0; }
+  .rel .artist { color: var(--muted); }
   .rel .title { min-width: 0; }
   .rel .tag {
     font-family: var(--mono); font-size: .68rem; color: var(--faint);
@@ -104,18 +114,16 @@
   .rel .st { display: flex; gap: .1rem; visibility: hidden; }
   .rel:hover .st { visibility: visible; }
   .rel .st button { font-size: .78rem; }
+  .rel .st button.cur { color: var(--accent); }
   .rel.owned .title { color: var(--muted); }
-  .rel.owned .year::before { content: ""; }
   .rel.owned::before { content: "✓"; color: var(--owned); font-size: .8rem; width: 0; margin-left: -.9rem; margin-right: .1rem; }
   .rel.ignored { opacity: .45; }
   .rel.ignored .title { text-decoration: line-through; text-decoration-color: var(--faint); }
   .rel.missing .year { color: var(--accent); }
-  .rel .st button.cur { color: var(--accent); }
 
-  .note { color: var(--muted); font-size: .85rem; margin: 1rem 0; }
   .hidden { display: none; }
-  @media (max-width: 540px) {
-    .row .frac, .rel .src { display: none; }
+  @media (max-width: 560px) {
+    .row .frac, .row .bar, .rel .src { display: none; }
     .rel .st { visibility: visible; }
   }
 </style>
@@ -124,67 +132,71 @@
 <div class="wrap">
   <header>
     <span class="wordmark">drop<b>watch</b></span>
-    <span class="sub" id="mpdSub"></span>
+    <nav>
+      <button type="button" class="pill on" data-view="artists">artists</button>
+      <button type="button" class="pill" data-view="library">library</button>
+      <button type="button" class="pill" data-view="lookup">lookup</button>
+    </nav>
+    <span class="spring"></span>
+    <span id="syncControls"></span>
   </header>
+  <div class="note" id="note"></div>
 
-  <form class="searchbar" id="searchForm">
-    <input type="search" id="q" placeholder="Search for an artist…" autocomplete="off">
-  </form>
-
-  <div id="home">
-    <div class="filters" id="homeTabs">
-      <button type="button" class="pill on" data-tab="artists">artists</button>
-      <button type="button" class="pill" data-tab="library">library</button>
+  <!-- ===== artists: the tracked collection, front and center ===== -->
+  <div id="artistsView">
+    <div class="controls">
+      <input type="search" id="artistFilter" placeholder="filter your artists…" autocomplete="off">
+      <button type="button" class="pill art-sort on" data-s="missing">by missing</button>
+      <button type="button" class="pill art-sort" data-s="name">by name</button>
     </div>
-
-    <div id="librarySection" class="hidden">
-      <div class="filters">
-        <input type="search" id="libFilter" class="inline" placeholder="filter artist or title…" autocomplete="off">
-        <span class="spring"></span>
-        <button type="button" class="pill lib-type on" data-t="Album">albums</button>
-        <button type="button" class="pill lib-type on" data-t="EP">eps</button>
-        <button type="button" class="pill lib-type" data-t="other">other</button>
-        <button type="button" class="pill lib-sort on" data-s="artist">by artist</button>
-        <button type="button" class="pill lib-sort" data-s="year">by year</button>
-        <button type="button" class="pill lib-sort" data-s="title">by title</button>
-      </div>
-      <div class="sectionhead"><h2>Library</h2><span class="agg" id="libAgg"></span></div>
-      <div id="libList"></div>
-    </div>
-
-    <div id="artistsTab">
-    <div id="searchSection" class="hidden">
-      <div class="sectionhead"><h2>Search results</h2><button type="button" id="clearSearch">clear</button></div>
-      <div id="searchResults"></div>
-    </div>
-
-    <div id="gapsSection">
-      <div class="sectionhead">
-        <h2>Missing</h2>
-        <span class="agg" id="gapsAgg"></span>
-      </div>
-      <div id="gapsList"></div>
-    </div>
-
+    <div class="sectionhead"><h2>Missing</h2><span class="agg" id="gapsAgg"></span></div>
+    <div id="gapsList"></div>
     <div id="completeSection" class="hidden">
-      <div class="sectionhead"><h2>Complete</h2></div>
+      <div class="sectionhead"><h2>Complete</h2><span class="agg" id="completeAgg"></span></div>
       <div id="completeList"></div>
-    </div>
-
-    <div class="note" id="homeNote"></div>
     </div>
   </div>
 
+  <!-- ===== library: everything owned ===== -->
+  <div id="libraryView" class="hidden">
+    <div class="controls">
+      <input type="search" id="libFilter" placeholder="filter artist or title…" autocomplete="off">
+      <button type="button" class="pill lib-type on" data-t="Album">albums</button>
+      <button type="button" class="pill lib-type on" data-t="EP">eps</button>
+      <button type="button" class="pill lib-type" data-t="other">other</button>
+      <button type="button" class="pill lib-sort on" data-s="artist">by artist</button>
+      <button type="button" class="pill lib-sort" data-s="year">by year</button>
+      <button type="button" class="pill lib-sort" data-s="title">by title</button>
+    </div>
+    <div class="sectionhead"><h2>Library</h2><span class="agg" id="libAgg"></span></div>
+    <div id="libList"></div>
+  </div>
+
+  <!-- ===== lookup: the only place MusicBrainz gets queried ===== -->
+  <div id="lookupView" class="hidden">
+    <form id="lookupForm" class="controls">
+      <input type="search" id="lookupQ" placeholder="search MusicBrainz for an artist…" autocomplete="off">
+      <button type="submit" class="pill">search</button>
+    </form>
+    <div id="lookupResults"></div>
+    <div class="hint">
+      This searches MusicBrainz, not your library. Opening a result fetches its
+      discography and starts tracking the artist. Use it to follow artists you
+      don't have locally yet — your own collection lives under
+      <em>artists</em> and <em>library</em>.
+    </div>
+  </div>
+
+  <!-- ===== artist detail ===== -->
   <div id="artistView" class="hidden">
-    <div class="crumbs"><button id="back">← all artists</button></div>
+    <div class="crumbs"><button id="back">← back</button></div>
     <div class="artisthead">
       <h2 id="artistName"></h2>
       <span class="counts" id="artistCounts"></span>
     </div>
     <div class="filters">
-      <button type="button" class="pill on" data-f="Album">albums</button>
-      <button type="button" class="pill on" data-f="EP">eps</button>
       <button type="button" class="pill" data-f="missing">missing only</button>
+      <button type="button" class="pill" data-f="variants">variants</button>
       <span class="spring"></span>
       <button type="button" id="refresh">refresh sources</button>
       <button type="button" id="untrack">untrack</button>
@@ -196,8 +208,6 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-let currentArtist = null;
-let releases = [];
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -213,19 +223,67 @@ function el(tag, cls, text) {
   return e;
 }
 
-function show(view) {
-  $("home").classList.toggle("hidden", view !== "home");
-  $("artistView").classList.toggle("hidden", view !== "artist");
-}
+/* ---------- view switching ---------- */
 
-/* ---------- home ---------- */
+const VIEWS = ["artists", "library", "lookup"];
+let currentView = "artists";
+let lastListView = "artists"; // where "back" from an artist page returns to
+
+function showView(name) {
+  for (const v of VIEWS) $(v + "View").classList.toggle("hidden", v !== name);
+  $("artistView").classList.toggle("hidden", name !== "artist");
+  document.querySelectorAll("nav .pill").forEach(p =>
+    p.classList.toggle("on", p.dataset.view === name));
+  if (name !== "artist") { currentView = name; lastListView = name; }
+  if (name === "artists") loadArtists();
+  if (name === "library") loadLibrary();
+}
+document.querySelectorAll("nav .pill").forEach(p => {
+  p.onclick = () => showView(p.dataset.view);
+});
+
+// "/" focuses the active view's input
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "/" || e.target.tagName === "INPUT") return;
+  e.preventDefault();
+  const input = { artists: "artistFilter", library: "libFilter", lookup: "lookupQ" }[currentView];
+  if (input) $(input).focus();
+});
+
+/* ---------- artists view ---------- */
+
+let allArtists = null;
+const artistsState = { filter: "", sort: "missing" };
+
+$("artistFilter").oninput = () => {
+  artistsState.filter = $("artistFilter").value.trim().toLowerCase();
+  renderArtists();
+};
+document.querySelectorAll(".art-sort").forEach(p => {
+  p.onclick = () => {
+    artistsState.sort = p.dataset.s;
+    document.querySelectorAll(".art-sort").forEach(q => q.classList.toggle("on", q === p));
+    renderArtists();
+  };
+});
+
+async function loadArtists() {
+  const { artists } = await api("/api/artists");
+  allArtists = artists;
+  renderArtists();
+}
 
 function artistRow(a) {
   const row = el("div", "row");
   row.appendChild(el("span", "name", a.name));
   if (a.disambiguation) row.appendChild(el("span", "dis", a.disambiguation));
   row.appendChild(el("span", "spring"));
-  if (a.total !== undefined) {
+  if (a.total !== undefined && a.total > 0) {
+    const bar = el("span", "bar");
+    const fill = el("i");
+    fill.style.width = Math.round(100 * a.owned / a.total) + "%";
+    bar.appendChild(fill);
+    row.appendChild(bar);
     row.appendChild(el("span", "frac", `${a.owned}/${a.total}`));
     row.appendChild(a.missing > 0
       ? el("span", "gap", `${a.missing} missing`)
@@ -235,18 +293,25 @@ function artistRow(a) {
   return row;
 }
 
-async function loadHome() {
-  const { artists } = await api("/api/artists");
-  const gaps = artists.filter(a => a.missing > 0);
-  const complete = artists.filter(a => a.missing === 0);
+function renderArtists() {
+  if (allArtists === null) return;
+  const q = artistsState.filter;
+  let rows = allArtists.filter(a =>
+    !q || a.name.toLowerCase().includes(q) || (a.disambiguation || "").toLowerCase().includes(q));
+  if (artistsState.sort === "name") {
+    rows = rows.slice().sort((a, b) => (a.sortName || a.name).localeCompare(b.sortName || b.name));
+  } // "missing" keeps server order: most missing first
+
+  const gaps = rows.filter(a => a.missing > 0);
+  const complete = rows.filter(a => a.missing === 0);
 
   const gl = $("gapsList");
   gl.innerHTML = "";
-  if (!artists.length) {
-    gl.appendChild(el("div", "empty", "Nothing tracked yet — search for an artist above, or sync your player."));
+  if (!allArtists.length) {
+    gl.appendChild(el("div", "empty", "Nothing tracked yet — sync your player, or add artists via lookup."));
     $("gapsAgg").textContent = "";
   } else if (!gaps.length) {
-    gl.appendChild(el("div", "empty", "No gaps. Your collection is complete."));
+    gl.appendChild(el("div", "empty", q ? "No matching artists with gaps." : "No gaps. Your collection is complete."));
     $("gapsAgg").textContent = "";
   } else {
     for (const a of gaps) gl.appendChild(artistRow(a));
@@ -255,25 +320,17 @@ async function loadHome() {
   }
 
   $("completeSection").classList.toggle("hidden", !complete.length);
+  $("completeAgg").textContent = complete.length ? `${complete.length} artists` : "";
   const cl = $("completeList");
   cl.innerHTML = "";
   for (const a of complete) cl.appendChild(artistRow(a));
 }
 
-/* ---------- library tab ---------- */
+/* ---------- library view ---------- */
 
 let library = null;
 const libState = { types: { Album: true, EP: true, other: false }, sort: "artist", filter: "" };
 
-document.querySelectorAll("#homeTabs .pill").forEach(p => {
-  p.onclick = () => {
-    document.querySelectorAll("#homeTabs .pill").forEach(q => q.classList.toggle("on", q === p));
-    const lib = p.dataset.tab === "library";
-    $("librarySection").classList.toggle("hidden", !lib);
-    $("artistsTab").classList.toggle("hidden", lib);
-    if (lib) loadLibrary();
-  };
-});
 document.querySelectorAll(".lib-type").forEach(p => {
   p.onclick = () => {
     libState.types[p.dataset.t] = !libState.types[p.dataset.t];
@@ -336,17 +393,15 @@ function renderLibrary() {
   }
 }
 
-/* ---------- search ---------- */
+/* ---------- lookup view (MusicBrainz) ---------- */
 
-$("searchForm").onsubmit = async (e) => {
+$("lookupForm").onsubmit = async (e) => {
   e.preventDefault();
-  const q = $("q").value.trim();
+  const q = $("lookupQ").value.trim();
   if (!q) return;
-  show("home");
-  $("searchSection").classList.remove("hidden");
-  const box = $("searchResults");
+  const box = $("lookupResults");
   box.innerHTML = "";
-  box.appendChild(el("div", "empty", "Searching…"));
+  box.appendChild(el("div", "empty", "Searching MusicBrainz…"));
   try {
     const { artists } = await api(`/api/search/artists?q=${encodeURIComponent(q)}`);
     box.innerHTML = "";
@@ -357,20 +412,17 @@ $("searchForm").onsubmit = async (e) => {
     box.appendChild(el("div", "empty", "Search failed: " + err.message));
   }
 };
-$("clearSearch").onclick = () => {
-  $("searchSection").classList.add("hidden");
-  $("searchResults").innerHTML = "";
-  $("q").value = "";
-};
 
-/* ---------- artist ---------- */
+/* ---------- artist detail ---------- */
 
-const filters = { Album: true, EP: true, missing: false };
+let currentArtist = null;
+let releases = [];
+const relFilters = { missing: false, variants: false };
 
-document.querySelectorAll(".pill").forEach(p => {
+document.querySelectorAll("#artistView .filters .pill[data-f]").forEach(p => {
   p.onclick = () => {
-    filters[p.dataset.f] = !filters[p.dataset.f];
-    p.classList.toggle("on", filters[p.dataset.f]);
+    relFilters[p.dataset.f] = !relFilters[p.dataset.f];
+    p.classList.toggle("on", relFilters[p.dataset.f]);
     renderReleases();
   };
 });
@@ -388,30 +440,18 @@ function stateButton(r, label, state) {
     r.state = next;
     r.missing = next === "";
     library = null; // owned set changed; refetch on next library view
+    allArtists = null;
     renderReleases();
   };
   return b;
 }
 
-function renderReleases() {
-  const box = $("releases");
-  box.innerHTML = "";
-  const visible = releases.filter(r =>
-    filters[r.primaryType] &&
-    !(r.secondaryTypes || []).length &&
-    (!filters.missing || r.missing));
-  const missing = visible.filter(r => r.missing).length;
-  const owned = visible.filter(r => r.state === "owned").length;
-  $("artistCounts").textContent = `${owned}/${visible.length} owned · ${missing} missing`;
-  if (!visible.length) {
-    box.appendChild(el("div", "empty", "Nothing to show with these filters."));
-    return;
-  }
-  for (const r of visible) {
+function releaseRow(r) {
     const row = el("div", "rel " + (r.state || "missing"));
     row.appendChild(el("span", "year", (r.firstReleaseDate || "").slice(0, 4) || "—"));
     row.appendChild(el("span", "title", r.title));
     if (r.primaryType !== "Album") row.appendChild(el("span", "tag", r.primaryType));
+    for (const t of r.secondaryTypes || []) row.appendChild(el("span", "tag", t));
     row.appendChild(el("span", "spring"));
     row.appendChild(el("span", "src",
       (r.sources || []).map(s => s === "musicbrainz" ? "mb" : "dc").join(" ")));
@@ -419,13 +459,54 @@ function renderReleases() {
     st.appendChild(stateButton(r, "owned", "owned"));
     st.appendChild(stateButton(r, "ignore", "ignored"));
     row.appendChild(st);
-    box.appendChild(row);
+    return row;
+}
+
+// The artist page is sectioned: canonical albums, EPs, then variants (live,
+// compilations, singles, remixes). Owning something always shows it — owned
+// variants appear even with the variants toggle off; the toggle only reveals
+// the unowned rest. "missing only" hides owned/ignored canonical entries.
+function renderReleases() {
+  const box = $("releases");
+  box.innerHTML = "";
+  const isCanonical = r => !(r.secondaryTypes || []).length &&
+    (r.primaryType === "Album" || r.primaryType === "EP");
+  const isVariant = r => (r.secondaryTypes || []).length > 0;
+  const shown = releases.filter(r => {
+    if (r.state === "owned") return true; // what you own is always visible
+    if (relFilters.missing && !r.missing) return false;
+    if (isVariant(r)) return relFilters.variants;
+    return isCanonical(r); // singles etc. never shown unless owned
+  });
+  const sections = [
+    ["Albums", shown.filter(r => r.primaryType === "Album" && !isVariant(r))],
+    ["EPs", shown.filter(r => r.primaryType === "EP" && !isVariant(r))],
+    ["Live & compilations", shown.filter(r => isVariant(r) || !isCanonical(r))],
+  ];
+
+  const canonical = releases.filter(r =>
+    isCanonical(r) && (r.primaryType === "Album" || r.primaryType === "EP"));
+  const owned = releases.filter(r => r.state === "owned").length;
+  const missing = canonical.filter(r => r.missing).length;
+  $("artistCounts").textContent = `${owned} owned · ${missing} missing`;
+
+  let any = false;
+  for (const [title, rows] of sections) {
+    if (!rows.length) continue;
+    any = true;
+    const head = el("div", "sectionhead");
+    head.appendChild(el("h2", "", title));
+    head.appendChild(el("span", "agg",
+      `${rows.filter(r => r.state === "owned").length}/${rows.length} owned`));
+    box.appendChild(head);
+    for (const r of rows) box.appendChild(releaseRow(r));
   }
+  if (!any) box.appendChild(el("div", "empty", "Nothing to show."));
 }
 
 async function openArtist(a, refresh = false) {
   currentArtist = a;
-  show("artist");
+  showView("artist");
   $("artistName").textContent = a.name;
   $("artistCounts").textContent = "";
   $("releases").innerHTML = "";
@@ -438,6 +519,7 @@ async function openArtist(a, refresh = false) {
     const url = `/api/artists/${a.id}/releases?types=all${refresh ? "&refresh=1" : ""}`;
     const data = await api(url);
     releases = data.releases;
+    allArtists = null; // counts may have changed after a fetch
     $("artistName").textContent = data.artist.name;
     status.classList.add("hidden");
     renderReleases();
@@ -446,10 +528,9 @@ async function openArtist(a, refresh = false) {
   }
 }
 
-$("back").onclick = () => { show("home"); loadHome(); };
+$("back").onclick = () => showView(lastListView);
 $("refresh").onclick = () => currentArtist && openArtist(currentArtist, true);
 
-// Two-step inline confirm: first click arms it, second click deletes.
 let untrackArmed = null;
 $("untrack").onclick = async () => {
   const b = $("untrack");
@@ -471,31 +552,30 @@ $("untrack").onclick = async () => {
     untrackArmed = null;
     b.textContent = "untrack";
     b.classList.remove("danger");
-    show("home");
-    loadHome();
+    allArtists = null;
+    library = null;
+    showView(lastListView);
   } catch (err) {
     $("status").textContent = "Untrack failed: " + err.message;
     $("status").classList.remove("hidden");
   }
 };
 
-/* ---------- mpd ---------- */
+/* ---------- sync controls ---------- */
 
 api("/api/config").then(c => {
   const providers = [["mpd", c.mpd], ["subsonic", c.subsonic]].filter(p => p[1]).map(p => p[0]);
   if (!providers.length) return;
-  const sub = $("mpdSub");
+  const box = $("syncControls");
   const links = [];
 
   const lbl = el("label", "", "");
-  lbl.style.cssText = "font-size:.8rem;color:var(--muted);cursor:pointer";
   const onlyNew = document.createElement("input");
   onlyNew.type = "checkbox";
   onlyNew.checked = localStorage.getItem("dropwatch.onlyNew") !== "0";
   onlyNew.onchange = () => localStorage.setItem("dropwatch.onlyNew", onlyNew.checked ? "1" : "0");
-  lbl.append(onlyNew, " only new artists");
+  lbl.append(onlyNew, " only new");
 
-  let pollTimer = null;
   function describe(st) {
     const parts = [`${st.owned} owned`, `${st.missing} missing`];
     if (st.skipped) parts.push(`${st.skipped} skipped`);
@@ -506,7 +586,7 @@ api("/api/config").then(c => {
   function setBusy(busy) {
     for (const l of links) {
       l.btn.disabled = busy;
-      l.btn.textContent = busy ? "syncing…" : `sync with ${l.name}`;
+      l.btn.textContent = busy ? "syncing…" : `sync ${l.name}`;
     }
   }
   async function poll() {
@@ -515,24 +595,26 @@ api("/api/config").then(c => {
     if (st.idle) return;
     if (st.running) {
       setBusy(true);
-      $("homeNote").textContent =
+      $("note").textContent =
         (st.total ? `Syncing ${st.processed}/${st.total}` : "Syncing") +
         (st.current ? ` — ${st.current}` : "") +
         ` · ${describe(st)}`;
-      if (st.processed % 5 === 0) loadHome(); // grow the list as artists land
-      pollTimer = setTimeout(poll, 2000);
+      if (st.processed % 5 === 0) { allArtists = null; if (currentView === "artists") loadArtists(); }
+      setTimeout(poll, 2000);
     } else {
       setBusy(false);
-      $("homeNote").textContent = st.error
+      $("note").textContent = st.error
         ? `Sync failed: ${st.error}`
         : `Sync finished: ${st.processed} artists — ${describe(st)}.` +
           (st.failed || st.unmatched ? " Details in the server log." : "");
       library = null;
-      loadHome();
+      allArtists = null;
+      if (currentView === "artists") loadArtists();
+      if (currentView === "library") loadLibrary();
     }
   }
   for (const name of providers) {
-    const btn = el("button", "", `sync with ${name}`);
+    const btn = el("button", "", `sync ${name}`);
     btn.onclick = async () => {
       setBusy(true);
       try {
@@ -541,18 +623,17 @@ api("/api/config").then(c => {
         poll();
       } catch (err) {
         setBusy(false);
-        $("homeNote").textContent = `${name} sync failed to start: ` + err.message;
+        $("note").textContent = `${name} sync failed to start: ` + err.message;
       }
     };
     links.push({ name, btn });
-    sub.append(btn);
+    box.append(btn);
   }
-  sub.append(lbl);
+  box.append(lbl);
   poll(); // resume progress display if a sync is already running
 }).catch(() => {});
 
-show("home");
-loadHome();
+showView("artists");
 </script>
 </body>
 </html>

@@ -42,6 +42,8 @@ func migrate(db *sql.DB) error {
 		return err // already composite (or empty table just created with new schema)
 	}
 	_, err = db.Exec(`
+		BEGIN;
+		DROP TABLE IF EXISTS release_groups_v2;
 		CREATE TABLE release_groups_v2 (
 			id                 TEXT NOT NULL,
 			artist_id          TEXT NOT NULL REFERENCES artists(id),
@@ -62,7 +64,8 @@ func migrate(db *sql.DB) error {
 			FROM release_groups;
 		DROP TABLE release_groups;
 		ALTER TABLE release_groups_v2 RENAME TO release_groups;
-		CREATE INDEX IF NOT EXISTS idx_rg_artist ON release_groups(artist_id);`)
+		CREATE INDEX IF NOT EXISTS idx_rg_artist ON release_groups(artist_id);
+		COMMIT;`)
 	return err
 }
 
@@ -91,6 +94,14 @@ CREATE TABLE IF NOT EXISTS release_groups (
 	PRIMARY KEY (artist_id, id)
 );
 CREATE INDEX IF NOT EXISTS idx_rg_artist ON release_groups(artist_id);
+CREATE TABLE IF NOT EXISTS release_aliases (
+	artist_id    TEXT NOT NULL,
+	rg_id        TEXT NOT NULL,
+	norm_title   TEXT NOT NULL,
+	release_mbid TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (artist_id, rg_id, norm_title, release_mbid)
+);
+CREATE INDEX IF NOT EXISTS idx_alias_artist ON release_aliases(artist_id);
 `
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -122,8 +133,8 @@ func (s *Store) Artists() ([]model.ArtistSummary, error) {
 			COALESCE(SUM(CASE WHEN rg.state = '' THEN 1 ELSE 0 END), 0)
 		FROM artists a
 		LEFT JOIN release_groups rg ON rg.artist_id = a.id
-			AND LOWER(rg.primary_type) IN ('album', 'ep')
-			AND rg.secondary_types = ''
+			AND ((LOWER(rg.primary_type) IN ('album', 'ep') AND rg.secondary_types = '')
+			     OR rg.state = 'owned')
 		GROUP BY a.id
 		ORDER BY COALESCE(SUM(CASE WHEN rg.state = '' THEN 1 ELSE 0 END), 0) DESC, a.sort_name, a.name`)
 	if err != nil {
@@ -294,6 +305,51 @@ func (s *Store) SetState(releaseGroupID string, state model.State) (bool, error)
 	return n > 0, nil
 }
 
+// Alias is a stored release-title alias pointing at a release group.
+type Alias struct {
+	RGID        string
+	NormTitle   string
+	ReleaseMBID string
+}
+
+// SaveAliases replaces the artist's release-title aliases.
+func (s *Store) SaveAliases(artistID string, aliases []Alias) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM release_aliases WHERE artist_id = ?`, artistID); err != nil {
+		return err
+	}
+	for _, a := range aliases {
+		_, err := tx.Exec(`INSERT OR IGNORE INTO release_aliases (artist_id, rg_id, norm_title, release_mbid) VALUES (?, ?, ?, ?)`,
+			artistID, a.RGID, a.NormTitle, a.ReleaseMBID)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// Aliases returns the artist's release-title aliases.
+func (s *Store) Aliases(artistID string) ([]Alias, error) {
+	rows, err := s.db.Query(`SELECT rg_id, norm_title, release_mbid FROM release_aliases WHERE artist_id = ?`, artistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Alias
+	for rows.Next() {
+		var a Alias
+		if err := rows.Scan(&a.RGID, &a.NormTitle, &a.ReleaseMBID); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // Library returns all owned release groups with their artists, one row per
 // (artist, release group) — shared collab albums appear under each artist.
 func (s *Store) Library() ([]model.LibraryEntry, error) {
@@ -337,6 +393,9 @@ func (s *Store) DeleteArtist(id string) (bool, error) {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`DELETE FROM release_groups WHERE artist_id = ?`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`DELETE FROM release_aliases WHERE artist_id = ?`, id); err != nil {
 		return false, err
 	}
 	res, err := tx.Exec(`DELETE FROM artists WHERE id = ?`, id)

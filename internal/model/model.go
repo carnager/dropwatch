@@ -60,17 +60,23 @@ type ReleaseGroup struct {
 
 var (
 	editionRe = regexp.MustCompile(`(?i)\s*[(\[][^)\]]*(deluxe|remaster|expanded|anniversary|bonus|special|edition|reissue|version|mono|stereo)[^)\]]*[)\]]\s*$`)
-	nonAlnum  = regexp.MustCompile(`[^a-z0-9 ]+`)
-	spaces    = regexp.MustCompile(`\s+`)
+	// Reissues are also titled with bare suffixes: "Aaliyah: Edition 2004",
+	// "Use Your Illusion I - Remastered". Keyword-gated so real subtitles
+	// ("Operation: Mindcrime") survive.
+	suffixRe = regexp.MustCompile(`(?i)\s*[:\x{2010}-\x{2015}-][^:]*\b(deluxe|remaster(ed)?|expanded|anniversary|bonus|edition|reissue|version)\b[^:]*$`)
+	nonAlnum = regexp.MustCompile(`[^a-z0-9 ]+`)
+	spaces   = regexp.MustCompile(`\s+`)
 )
 
 // NormalizeTitle reduces an album title to a comparison key so the same album
 // from different sources (or different editions) groups together.
 func NormalizeTitle(title string) string {
 	t := strings.ToLower(title)
-	// Strip trailing edition qualifiers, possibly stacked.
+	// Strip trailing edition qualifiers, possibly stacked and in either
+	// style: "(Deluxe Edition)" / "[2017 Remaster]" / ": Edition 2004".
 	for {
 		stripped := editionRe.ReplaceAllString(t, "")
+		stripped = suffixRe.ReplaceAllString(stripped, "")
 		if stripped == t {
 			break
 		}

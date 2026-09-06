@@ -34,7 +34,7 @@ func (m *MusicBrainz) get(ctx context.Context, path string, params url.Values, o
 	// MusicBrainz returns 503 when it sheds load, even for clients that stay
 	// under 1 req/s. Back off and retry so bulk syncs don't fall over.
 	var lastErr error
-	for attempt := 0; attempt < 4; attempt++ {
+	for attempt := 0; attempt < 6; attempt++ {
 		select {
 		case <-m.throttle:
 		case <-ctx.Done():
@@ -54,7 +54,7 @@ func (m *MusicBrainz) get(ctx context.Context, path string, params url.Values, o
 			resp.Body.Close()
 			lastErr = fmt.Errorf("musicbrainz: %s returned %s", path, resp.Status)
 			select {
-			case <-time.After(time.Duration(attempt+1) * 2 * time.Second):
+			case <-time.After(time.Duration(attempt+1) * 5 * time.Second):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -69,8 +69,20 @@ func (m *MusicBrainz) get(ctx context.Context, path string, params url.Values, o
 	return lastErr
 }
 
-// SearchArtists finds artists by name.
+// SearchArtists finds artists by name. It first searches for the exact
+// quoted phrase — which also matches aliases, e.g. "Agua de Annique" resolves
+// to Anneke van Giersbergen — and only falls back to fuzzy matching when the
+// phrase finds nothing, keeping lookalike noise out of good queries.
 func (m *MusicBrainz) SearchArtists(ctx context.Context, query string) ([]model.Artist, error) {
+	phrase := `"` + strings.ReplaceAll(query, `"`, `\"`) + `"`
+	artists, err := m.searchArtists(ctx, phrase)
+	if err != nil || len(artists) > 0 {
+		return artists, err
+	}
+	return m.searchArtists(ctx, query)
+}
+
+func (m *MusicBrainz) searchArtists(ctx context.Context, query string) ([]model.Artist, error) {
 	var res struct {
 		Artists []struct {
 			ID             string `json:"id"`
@@ -143,6 +155,54 @@ func (m *MusicBrainz) ReleaseGroups(ctx context.Context, artistMBID string) ([]m
 		}
 	}
 	return groups, nil
+}
+
+// ReleaseAlias links one release title (and its release MBID) to its release
+// group. Release titles often differ from the group title — reissues like
+// "Aaliyah: Edition 2004" — so matching a library against them is far more
+// reliable than title normalization alone.
+type ReleaseAlias struct {
+	ReleaseMBID    string
+	Title          string
+	ReleaseGroupID string
+}
+
+// ReleaseAliases fetches all releases for an artist with their release-group
+// IDs, paging as needed.
+func (m *MusicBrainz) ReleaseAliases(ctx context.Context, artistMBID string) ([]ReleaseAlias, error) {
+	const pageSize = 100
+	var out []ReleaseAlias
+	for offset := 0; ; offset += pageSize {
+		var res struct {
+			Count    int `json:"release-count"`
+			Releases []struct {
+				ID           string `json:"id"`
+				Title        string `json:"title"`
+				ReleaseGroup struct {
+					ID string `json:"id"`
+				} `json:"release-group"`
+			} `json:"releases"`
+		}
+		params := url.Values{
+			"artist": {artistMBID},
+			"inc":    {"release-groups"},
+			"limit":  {fmt.Sprint(pageSize)},
+			"offset": {fmt.Sprint(offset)},
+		}
+		if err := m.get(ctx, "release", params, &res); err != nil {
+			return nil, err
+		}
+		for _, r := range res.Releases {
+			if r.ReleaseGroup.ID == "" {
+				continue
+			}
+			out = append(out, ReleaseAlias{ReleaseMBID: r.ID, Title: r.Title, ReleaseGroupID: r.ReleaseGroup.ID})
+		}
+		if offset+pageSize >= res.Count || len(res.Releases) == 0 {
+			break
+		}
+	}
+	return out, nil
 }
 
 // LookupArtist fetches an artist directly by MBID (canonical, unlike search,
