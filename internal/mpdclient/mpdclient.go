@@ -92,12 +92,22 @@ func (c *Client) command(cmd string) ([]string, error) {
 // album titles.
 func (c *Client) Library() ([]Artist, error) {
 	lines, err := c.command("list musicbrainz_releasegroupid group album group albumartist")
-	if err != nil {
-		lines, err = c.command("list album group albumartist")
-		if err != nil {
-			return nil, err
+	if err == nil {
+		if out := parseLibrary(lines); len(out) > 0 {
+			return out, nil
 		}
+		// Some servers accept the command but ignore the group clauses and
+		// return a flat value list with no artists — treat that like an
+		// unsupported query rather than an empty library.
 	}
+	lines, err = c.command("list album group albumartist")
+	if err != nil {
+		return nil, err
+	}
+	return parseLibrary(lines), nil
+}
+
+func parseLibrary(lines []string) []Artist {
 	var (
 		out   []Artist
 		index = map[string]int{}
@@ -133,5 +143,5 @@ func (c *Client) Library() ([]Artist, error) {
 			}
 		}
 	}
-	return out, nil
+	return out
 }
