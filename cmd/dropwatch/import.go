@@ -404,9 +404,9 @@ func readLibrary(mpdAddr, subsonicURL string) ([]mpdclient.Artist, error) {
 
 // openDump streams a MusicBrainz JSON dump line-by-line, accepting either the
 // .tar.xz as downloaded or the extracted NDJSON file (much faster — no xz
-// decompression). Gigabytes are never buffered; call the returned close func
-// after scanning.
-func openDump(path string) (*bufio.Scanner, func() error, error) {
+// decompression). Only one record is buffered at a time; call the returned
+// close func after scanning.
+func openDump(path string) (*dumpScanner, func() error, error) {
 	var reader io.Reader
 	var closeFn func() error
 	if strings.HasSuffix(path, ".tar.xz") || strings.HasSuffix(path, ".txz") {
@@ -427,9 +427,43 @@ func openDump(path string) (*bufio.Scanner, func() error, error) {
 		}
 		reader, closeFn = f, f.Close
 	}
-	sc := bufio.NewScanner(reader)
-	sc.Buffer(make([]byte, 1<<20), 32<<20)
-	return sc, closeFn, nil
+	return &dumpScanner{reader: bufio.NewReaderSize(reader, 1<<20)}, closeFn, nil
+}
+
+// dumpScanner retains line-by-line parsing (including skipping malformed JSON
+// records) without bufio.Scanner's fixed token limit. Large releases can have
+// more than 32 MiB of track and relationship data in a single record.
+type dumpScanner struct {
+	reader *bufio.Reader
+	line   []byte
+	err    error
+}
+
+func (s *dumpScanner) Scan() bool {
+	s.line = nil
+	if s.err != nil {
+		return false
+	}
+	s.line, s.err = s.reader.ReadBytes('\n')
+	if len(s.line) == 0 {
+		return false
+	}
+	if s.line[len(s.line)-1] == '\n' {
+		s.line = s.line[:len(s.line)-1]
+	}
+	if len(s.line) > 0 && s.line[len(s.line)-1] == '\r' {
+		s.line = s.line[:len(s.line)-1]
+	}
+	return true
+}
+
+func (s *dumpScanner) Bytes() []byte { return s.line }
+
+func (s *dumpScanner) Err() error {
+	if s.err == io.EOF {
+		return nil
+	}
+	return s.err
 }
 
 var nameNonAlnum = regexp.MustCompile(`[^a-z0-9 ]+`)
