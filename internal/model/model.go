@@ -68,6 +68,16 @@ var (
 	spaces   = regexp.MustCompile(`\s+`)
 )
 
+// NormalizeTitleLight folds case, punctuation and whitespace but strips
+// nothing else. Used for release-title aliases, where the edition suffix IS
+// the signal: "Aaliyah Edition 2004" must meet "Aaliyah: Edition 2004".
+func NormalizeTitleLight(title string) string {
+	t := strings.ToLower(title)
+	t = strings.NewReplacer("&", " and ", "+", " and ").Replace(t)
+	t = nonAlnum.ReplaceAllString(t, " ")
+	return spaces.ReplaceAllString(strings.TrimSpace(t), " ")
+}
+
 // NormalizeTitle reduces an album title to a comparison key so the same album
 // from different sources (or different editions) groups together.
 func NormalizeTitle(title string) string {

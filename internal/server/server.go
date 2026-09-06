@@ -266,11 +266,23 @@ func (s *Server) fetchAndStore(ctx context.Context, mbid string) (model.Artist, 
 		if !known[r.ReleaseGroupID] {
 			continue
 		}
+		// Store both normalizations: the stripped one collapses editions,
+		// the light one preserves the exact release title for tags that
+		// carry it verbatim in any punctuation variant.
+		stripped := model.NormalizeTitle(r.Title)
+		light := model.NormalizeTitleLight(r.Title)
 		aliases = append(aliases, store.Alias{
 			RGID:        r.ReleaseGroupID,
-			NormTitle:   model.NormalizeTitle(r.Title),
+			NormTitle:   stripped,
 			ReleaseMBID: r.ReleaseMBID,
 		})
+		if light != stripped {
+			aliases = append(aliases, store.Alias{
+				RGID:        r.ReleaseGroupID,
+				NormTitle:   light,
+				ReleaseMBID: r.ReleaseMBID,
+			})
+		}
 	}
 	if err := s.store.SaveAliases(mbid, aliases); err != nil {
 		return artist, err

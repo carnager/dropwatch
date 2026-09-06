@@ -202,6 +202,8 @@ func (s *Server) matchAlbums(mbid string, albums []syncAlbum, res *syncResult) e
 			matched = gs
 		} else if gs, ok := aliasNorm[norm]; ok {
 			matched = gs
+		} else if gs, ok := aliasNorm[model.NormalizeTitleLight(album.Title)]; ok {
+			matched = gs
 		}
 		if len(matched) == 0 {
 			label := album.Title
