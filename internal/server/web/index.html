@@ -146,8 +146,8 @@
   <div id="artistsView">
     <div class="controls">
       <input type="search" id="artistFilter" placeholder="filter your artists…" autocomplete="off">
-      <button type="button" class="pill art-sort on" data-s="missing">by missing</button>
-      <button type="button" class="pill art-sort" data-s="name">by name</button>
+      <button type="button" class="pill art-sort" data-s="missing">by missing</button>
+      <button type="button" class="pill art-sort on" data-s="name">by name</button>
     </div>
     <div class="sectionhead"><h2>Missing</h2><span class="agg" id="gapsAgg"></span></div>
     <div id="gapsList"></div>
@@ -198,6 +198,7 @@
       <button type="button" class="pill" data-f="missing">missing only</button>
       <button type="button" class="pill" data-f="variants">variants</button>
       <span class="spring"></span>
+      <button type="button" id="syncThis" class="hidden">sync from mpd</button>
       <button type="button" id="refresh">refresh sources</button>
       <button type="button" id="untrack">untrack</button>
     </div>
@@ -253,7 +254,7 @@ document.addEventListener("keydown", (e) => {
 /* ---------- artists view ---------- */
 
 let allArtists = null;
-const artistsState = { filter: "", sort: "missing" };
+const artistsState = { filter: "", sort: "name" };
 
 $("artistFilter").oninput = () => {
   artistsState.filter = $("artistFilter").value.trim().toLowerCase();
@@ -531,6 +532,44 @@ async function openArtist(a, refresh = false) {
 $("back").onclick = () => showView(lastListView);
 $("refresh").onclick = () => currentArtist && openArtist(currentArtist, true);
 
+// Per-artist pull sync: matches only this artist's albums from the player,
+// marking owned ones, then reloads the page. Exact name match server-side.
+let syncProvider = null; // set from /api/config below
+$("syncThis").onclick = async () => {
+  if (!currentArtist || !syncProvider) return;
+  const b = $("syncThis");
+  b.disabled = true;
+  b.textContent = "syncing…";
+  const status = $("status");
+  try {
+    const url = `/api/sync/${syncProvider}?exact=1&artist=${encodeURIComponent(currentArtist.name)}`;
+    await api(url, { method: "POST" });
+    // Small job (one artist); poll status until it finishes, then reload.
+    for (let i = 0; i < 150; i++) {
+      await new Promise(res => setTimeout(res, 2000));
+      const st = await api("/api/sync/status");
+      if (!st.running) {
+        status.classList.remove("hidden");
+        status.textContent = st.error
+          ? "Sync failed: " + st.error
+          : (st.total === 0
+              ? `No album artist named “${currentArtist.name}” found in ${syncProvider}.`
+              : `Synced from ${syncProvider}: ${st.owned} owned, ${st.unmatched} unmatched.`);
+        library = null;
+        allArtists = null;
+        if (st.total > 0) openArtist(currentArtist);
+        break;
+      }
+    }
+  } catch (err) {
+    status.classList.remove("hidden");
+    status.textContent = "Sync failed: " + err.message;
+  } finally {
+    b.disabled = false;
+    b.textContent = "sync from " + syncProvider;
+  }
+};
+
 let untrackArmed = null;
 $("untrack").onclick = async () => {
   const b = $("untrack");
@@ -566,6 +605,9 @@ $("untrack").onclick = async () => {
 api("/api/config").then(c => {
   const providers = [["mpd", c.mpd], ["subsonic", c.subsonic]].filter(p => p[1]).map(p => p[0]);
   if (!providers.length) return;
+  syncProvider = providers[0];
+  $("syncThis").textContent = "sync from " + syncProvider;
+  $("syncThis").classList.remove("hidden");
   const box = $("syncControls");
   const links = [];
 

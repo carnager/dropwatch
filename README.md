@@ -104,22 +104,30 @@ artists — handy for incremental runs.
 ### Initial import from a MusicBrainz dump
 
 For a large library, the first sync is faster from a database dump than from
-the rate-limited API. Download the **release-group** JSON dump (~1 GB; the
-artist dump is not needed — release groups embed their artist credits) from
-the newest date directory under
-https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/ , then:
+the rate-limited API. From the newest date directory under
+https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/ download:
+
+- **release-group.tar.xz** (~1 GB) — required. The artist dump is not needed;
+  release groups embed their artist credits.
+- **release.tar.xz** (larger) — optional but recommended. Adds release-title
+  aliases so rips named after a specific version ("Aaliyah: Edition 2004")
+  match their album and are marked owned during the import itself.
 
 ```sh
-./dropwatch import -dump release-group.tar.xz -mpd localhost:6600 -db dropwatch.db
+./dropwatch import -dump release-group.tar.xz -release-dump release.tar.xz \
+  -mpd localhost:6600 -db dropwatch.db
 ```
+
+Both flags also accept the extracted NDJSON files, which skips xz
+decompression and is much faster if you have the disk space.
 
 The importer streams the dump once (needs `tar` + `xz`), matches your MPD
 album artists against the embedded artist credits, and only imports
 **confident matches**: the name matched and at least one of your albums for
 that artist exists in the candidate's discography (this is also how same-named
 artists are disambiguated). Owned albums are marked in the same pass.
-The dump contains no release-level titles, so the importer matches by
-normalized group title only. After importing, run **one full sync with "only
+Without `-release-dump`, the importer matches by normalized group title only.
+After importing, run **one full sync with "only
 new artists" unchecked**: tracked artists resolve locally (no API searches),
 and any artist whose albums didn't all match gets refetched live — including
 release-title aliases, so reissue-titled rips ("Album: Edition 2004") heal

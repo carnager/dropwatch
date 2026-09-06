@@ -213,7 +213,7 @@ func (s *Server) matchAlbums(mbid string, albums []syncAlbum, res *syncResult) e
 			res.Unmatched = append(res.Unmatched, label)
 			continue
 		}
-		for _, g := range preferCanonical(matched) {
+		for _, g := range model.PreferCanonical(matched) {
 			if g.State == model.StateOwned {
 				continue
 			}
@@ -234,38 +234,6 @@ func (s *Server) matchAlbums(mbid string, albums []syncAlbum, res *syncResult) e
 		}
 	}
 	return nil
-}
-
-// preferCanonical narrows same-title matches to the most album-like tier so
-// owning the album "One in a Million" marks the album release group(s) — and
-// a same-named MusicBrainz duplicate — but not the single. Tiers: canonical
-// albums, then canonical EPs, then everything else.
-func preferCanonical(matched []*model.ReleaseGroup) []*model.ReleaseGroup {
-	tier := func(g *model.ReleaseGroup) int {
-		if len(g.SecondaryTypes) > 0 {
-			return 2
-		}
-		switch g.PrimaryType {
-		case "Album":
-			return 0
-		case "EP":
-			return 1
-		}
-		return 2
-	}
-	best := 3
-	for _, g := range matched {
-		if t := tier(g); t < best {
-			best = t
-		}
-	}
-	var out []*model.ReleaseGroup
-	for _, g := range matched {
-		if tier(g) == best {
-			out = append(out, g)
-		}
-	}
-	return out
 }
 
 // mpdJob tracks a background MPD sync. A first sync of a large library takes
@@ -329,11 +297,18 @@ func (s *Server) handleSyncMPD(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("artist")))
+	exact := r.URL.Query().Get("exact") == "1"
 	skipExisting := r.URL.Query().Get("skip_existing") == "1"
 	var artists []syncArtist
 	for _, a := range library {
-		if filter != "" && !strings.Contains(strings.ToLower(a.Name), filter) {
-			continue
+		if filter != "" {
+			name := strings.ToLower(a.Name)
+			if exact && name != filter {
+				continue
+			}
+			if !exact && !strings.Contains(name, filter) {
+				continue
+			}
 		}
 		in := syncArtist{Name: a.Name}
 		for _, alb := range a.Albums {
@@ -416,6 +391,7 @@ func (s *Server) handleSyncSubsonic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("artist")))
+	exact := r.URL.Query().Get("exact") == "1"
 	skipExisting := r.URL.Query().Get("skip_existing") == "1"
 	job := &mpdJob{Running: true, Current: "reading library from subsonic…"}
 	s.job = job
@@ -439,8 +415,11 @@ func (s *Server) handleSyncSubsonic(w http.ResponseWriter, r *http.Request) {
 		}
 		var artists []syncArtist
 		for _, a := range library {
-			if filter != "" && !strings.Contains(strings.ToLower(a.Name), filter) {
-				continue
+			if filter != "" {
+				name := strings.ToLower(a.Name)
+				if (exact && name != filter) || (!exact && !strings.Contains(name, filter)) {
+					continue
+				}
 			}
 			in := syncArtist{Name: a.Name}
 			for _, alb := range a.Albums {

@@ -26,12 +26,13 @@ import (
 func runImport(args []string) {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
 	dbPath := fs.String("db", "dropwatch.db", "path to SQLite database")
-	dumpPath := fs.String("dump", "", "path to MusicBrainz release-group JSON dump (release-group.tar.xz)")
+	dumpPath := fs.String("dump", "", "path to MusicBrainz release-group JSON dump (release-group.tar.xz or extracted NDJSON)")
+	releaseDump := fs.String("release-dump", "", "optional path to the MusicBrainz release JSON dump (release.tar.xz or extracted NDJSON); adds release-title aliases so reissue-titled rips match")
 	mpdAddr := fs.String("mpd", os.Getenv("MPD_HOST"), "MPD server address (host[:port]); also read from MPD_HOST")
 	fs.Parse(args)
 	if *dumpPath == "" || *mpdAddr == "" {
-		log.Fatal("usage: dropwatch import -dump release-group.tar.xz -mpd host[:port] [-db dropwatch.db]\n" +
-			"download the dump from https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/ (newest date directory)")
+		log.Fatal("usage: dropwatch import -dump release-group.tar.xz [-release-dump release.tar.xz] -mpd host[:port] [-db dropwatch.db]\n" +
+			"download the dumps from https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/ (newest date directory)")
 	}
 
 	host, password := *mpdAddr, os.Getenv("MPD_PASSWORD")
@@ -58,10 +59,8 @@ func runImport(args []string) {
 	// are skipped: the import must not clobber live-synced data, and this
 	// makes re-runs cheap.
 	type libArtist struct {
-		name       string
-		albums     []mpdclient.Album
-		albumNorms map[string]bool
-		albumMBIDs map[string]bool
+		name   string
+		albums []mpdclient.Album
 	}
 	libByNorm := map[string]*libArtist{}
 	skippedTracked, skippedVA := 0, 0
@@ -75,15 +74,7 @@ func runImport(args []string) {
 			skippedTracked++
 			continue
 		}
-		la := &libArtist{name: a.Name, albums: a.Albums,
-			albumNorms: map[string]bool{}, albumMBIDs: map[string]bool{}}
-		for _, alb := range a.Albums {
-			la.albumNorms[model.NormalizeTitle(alb.Title)] = true
-			if alb.MBID != "" {
-				la.albumMBIDs[alb.MBID] = true
-			}
-		}
-		libByNorm[norm] = la
+		libByNorm[norm] = &libArtist{name: a.Name, albums: a.Albums}
 	}
 	log.Printf("library: %d artists to import (%d already tracked, %d various-artists entries skipped)",
 		len(libByNorm), skippedTracked, skippedVA)
@@ -121,32 +112,10 @@ func runImport(args []string) {
 		} `json:"artist-credit"`
 	}
 
-	// The dump can be the .tar.xz as downloaded or the already-extracted
-	// NDJSON file (much faster — no xz decompression). Either way the data
-	// streams; gigabytes are never buffered.
-	var reader io.Reader
-	var cmd *exec.Cmd
-	if strings.HasSuffix(*dumpPath, ".tar.xz") || strings.HasSuffix(*dumpPath, ".txz") {
-		cmd = exec.Command("tar", "-xJOf", *dumpPath, "--wildcards", "mbdump/*")
-		cmd.Stderr = os.Stderr
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			log.Fatal(err)
-		}
-		if err := cmd.Start(); err != nil {
-			log.Fatalf("starting tar (is xz installed?): %v", err)
-		}
-		reader = stdout
-	} else {
-		f, err := os.Open(*dumpPath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer f.Close()
-		reader = f
+	sc, closeDump, err := openDump(*dumpPath)
+	if err != nil {
+		log.Fatalf("open dump: %v", err)
 	}
-	sc := bufio.NewScanner(reader)
-	sc.Buffer(make([]byte, 1<<20), 32<<20)
 
 	matchedNames := map[string]bool{}
 	record := func(artistID, artistName, sortName, libKey string, rg rgLine) {
@@ -207,13 +176,93 @@ func runImport(args []string) {
 	if err := sc.Err(); err != nil {
 		log.Fatalf("reading dump: %v", err)
 	}
-	if cmd != nil {
-		if err := cmd.Wait(); err != nil {
-			log.Fatalf("tar: %v", err)
-		}
+	if err := closeDump(); err != nil {
+		log.Fatalf("dump: %v", err)
 	}
 	log.Printf("dump scanned: %d release groups — %d/%d library artists seen (%d candidates)",
 		lines, len(matchedNames), len(libByNorm), len(candidates))
+
+	// Optional second pass over the release dump: collect the titles of every
+	// release inside a candidate group. Release titles carry reissue names
+	// ("Aaliyah: Edition 2004") that group titles don't, so they make both
+	// confidence scoring and owned-marking far more reliable.
+	type aliasRec struct{ norm, light, relMBID string }
+	rgAliases := map[string][]aliasRec{}
+	if *releaseDump != "" {
+		wanted := make(map[string]bool)
+		for _, c := range candidates {
+			for _, g := range c.groups {
+				wanted[g.ID] = true
+			}
+		}
+		rsc, closeRel, err := openDump(*releaseDump)
+		if err != nil {
+			log.Fatalf("open release dump: %v", err)
+		}
+		type relLine struct {
+			ID           string `json:"id"`
+			Title        string `json:"title"`
+			ReleaseGroup struct {
+				ID string `json:"id"`
+			} `json:"release-group"`
+		}
+		rlines, withRG, matched := 0, 0, 0
+		for rsc.Scan() {
+			rlines++
+			if rlines%500000 == 0 {
+				log.Printf("scanned %dk releases — %d alias titles collected", rlines/1000, matched)
+			}
+			var r relLine
+			if err := json.Unmarshal(rsc.Bytes(), &r); err != nil || r.ReleaseGroup.ID == "" {
+				continue
+			}
+			withRG++
+			if !wanted[r.ReleaseGroup.ID] {
+				continue
+			}
+			matched++
+			rgAliases[r.ReleaseGroup.ID] = append(rgAliases[r.ReleaseGroup.ID], aliasRec{
+				norm:    model.NormalizeTitle(r.Title),
+				light:   model.NormalizeTitleLight(r.Title),
+				relMBID: r.ID,
+			})
+		}
+		if err := rsc.Err(); err != nil {
+			log.Fatalf("reading release dump: %v", err)
+		}
+		if err := closeRel(); err != nil {
+			log.Fatalf("release dump: %v", err)
+		}
+		if rlines > 0 && withRG == 0 {
+			log.Fatal("release dump contains no release-group references — is this the right file?")
+		}
+		log.Printf("release dump scanned: %d releases, %d alias titles across %d groups", rlines, matched, len(rgAliases))
+	}
+
+	// matchGroups finds the candidate's release groups matching one library
+	// album: by release-group MBID tag, by normalized group title, or by any
+	// release-title alias.
+	matchGroups := func(c *candidate, alb mpdclient.Album) []*model.ReleaseGroup {
+		norm := model.NormalizeTitle(alb.Title)
+		light := model.NormalizeTitleLight(alb.Title)
+		var out []*model.ReleaseGroup
+		for i := range c.groups {
+			g := &c.groups[i]
+			ok := (alb.MBID != "" && g.MBID == alb.MBID) || g.NormTitle == norm
+			if !ok {
+				for _, a := range rgAliases[g.ID] {
+					if a.norm == norm || a.light == light {
+						ok = true
+						break
+					}
+				}
+			}
+			if ok {
+				out = append(out, g)
+			}
+		}
+		return out
+	}
 
 	// Pick the best candidate per library artist: most owned-album matches,
 	// then largest discography. Only confident matches are imported — the
@@ -231,8 +280,8 @@ func runImport(args []string) {
 			continue
 		}
 		n := 0
-		for _, g := range c.groups {
-			if lib.albumMBIDs[g.MBID] || lib.albumNorms[g.NormTitle] {
+		for _, alb := range lib.albums {
+			if len(matchGroups(c, alb)) > 0 {
 				n++
 			}
 		}
@@ -257,17 +306,34 @@ func runImport(args []string) {
 		if err := st.SaveReleaseGroups(c.artist.ID, c.groups); err != nil {
 			log.Fatalf("save release groups for %s: %v", c.artist.Name, err)
 		}
-		owned := 0
-		for _, g := range c.groups {
-			if lib.albumMBIDs[g.MBID] || lib.albumNorms[g.NormTitle] {
-				if _, err := st.SetState(g.ID, model.StateOwned); err == nil {
-					owned++
+		if len(rgAliases) > 0 {
+			var rows []store.Alias
+			for _, g := range c.groups {
+				for _, a := range rgAliases[g.ID] {
+					rows = append(rows, store.Alias{RGID: g.ID, NormTitle: a.norm, ReleaseMBID: a.relMBID})
+					if a.light != a.norm {
+						rows = append(rows, store.Alias{RGID: g.ID, NormTitle: a.light, ReleaseMBID: a.relMBID})
+					}
 				}
 			}
+			if err := st.SaveAliases(c.artist.ID, rows); err != nil {
+				log.Fatalf("save aliases for %s: %v", c.artist.Name, err)
+			}
+		}
+		owned := 0
+		for _, alb := range lib.albums {
+			matched := matchGroups(c, alb)
+			if len(matched) == 0 {
+				continue
+			}
+			for _, g := range model.PreferCanonical(matched) {
+				st.SetState(g.ID, model.StateOwned)
+			}
+			owned++
 		}
 		ownedTotal += owned
 		imported++
-		log.Printf("imported %s: %d release groups, %d owned", c.artist.Name, len(c.groups), owned)
+		log.Printf("imported %s: %d release groups, %d/%d albums owned", c.artist.Name, len(c.groups), owned, len(lib.albums))
 	}
 
 	fmt.Printf("\nimported %d/%d artists (confident matches only), marked %d albums owned\n", imported, len(libByNorm), ownedTotal)
@@ -279,6 +345,36 @@ func runImport(args []string) {
 		fmt.Println("→ run \"sync with mpd\" in the web UI with \"only new artists\" checked to resolve these via the live API.")
 	}
 	fmt.Println("note: Discogs data is not in the dump — it is merged in per artist on the next refresh.")
+}
+
+// openDump streams a MusicBrainz JSON dump line-by-line, accepting either the
+// .tar.xz as downloaded or the extracted NDJSON file (much faster — no xz
+// decompression). Gigabytes are never buffered; call the returned close func
+// after scanning.
+func openDump(path string) (*bufio.Scanner, func() error, error) {
+	var reader io.Reader
+	var closeFn func() error
+	if strings.HasSuffix(path, ".tar.xz") || strings.HasSuffix(path, ".txz") {
+		cmd := exec.Command("tar", "-xJOf", path, "--wildcards", "mbdump/*")
+		cmd.Stderr = os.Stderr
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := cmd.Start(); err != nil {
+			return nil, nil, fmt.Errorf("starting tar (is xz installed?): %w", err)
+		}
+		reader, closeFn = stdout, cmd.Wait
+	} else {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		reader, closeFn = f, f.Close
+	}
+	sc := bufio.NewScanner(reader)
+	sc.Buffer(make([]byte, 1<<20), 32<<20)
+	return sc, closeFn, nil
 }
 
 var nameNonAlnum = regexp.MustCompile(`[^a-z0-9 ]+`)

@@ -58,6 +58,38 @@ type ReleaseGroup struct {
 	Missing          bool     `json:"missing"`
 }
 
+// PreferCanonical narrows same-title matches to the most album-like tier so
+// owning the album "One in a Million" marks the album release group(s) — and
+// a same-named duplicate — but not the single. Tiers: canonical albums, then
+// canonical EPs, then everything else.
+func PreferCanonical(matched []*ReleaseGroup) []*ReleaseGroup {
+	tier := func(g *ReleaseGroup) int {
+		if len(g.SecondaryTypes) > 0 {
+			return 2
+		}
+		switch g.PrimaryType {
+		case "Album":
+			return 0
+		case "EP":
+			return 1
+		}
+		return 2
+	}
+	best := 3
+	for _, g := range matched {
+		if t := tier(g); t < best {
+			best = t
+		}
+	}
+	var out []*ReleaseGroup
+	for _, g := range matched {
+		if tier(g) == best {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
 var (
 	editionRe = regexp.MustCompile(`(?i)\s*[(\[][^)\]]*(deluxe|remaster|expanded|anniversary|bonus|special|edition|reissue|version|mono|stereo)[^)\]]*[)\]]\s*$`)
 	// Reissues are also titled with bare suffixes: "Aaliyah: Edition 2004",
