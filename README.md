@@ -1,202 +1,119 @@
 # dropwatch
 
-A small Go web service that shows an artist's discography — grouped so that
-deluxe editions, remasters and reissues collapse into one entry — and tracks
-which albums/EPs you own, so you can spot what's missing from your library.
+dropwatch answers one question: **which albums am I missing?**
 
-Sources: **MusicBrainz** (always on, release-groups are the grouping backbone)
-and **Discogs** (optional, merged in by normalized title; catches vinyl-only
-and obscure releases). Ownership state lives in a local SQLite database.
+It keeps a list of your artists, knows every album and EP they ever released
+(via MusicBrainz, optionally Discogs), compares that against your music
+library, and shows you the gaps. Different versions of the same album —
+remasters, deluxe editions, reissues — count as one album, so you don't get
+told you're "missing" a record you already own in a different pressing.
 
-## Run
+## Quick start
 
 ```sh
 go build -o dropwatch ./cmd/dropwatch
-./dropwatch -addr :8080 -db dropwatch.db \
-  -discogs-token xxxx \
-  -mpd localhost:6600
+./dropwatch -mpd localhost:6600 -discogs-token XXXX
 ```
 
-- `-discogs-token` (or `DISCOGS_TOKEN`) — optional personal access token from
-  https://www.discogs.com/settings/developers ("Generate new token", not the
-  consumer key). Without it, MusicBrainz only.
-- `-mpd` (or `MPD_HOST`, which may be `password@host` or a unix socket path;
-  `MPD_PASSWORD` also works) — optional MPD server; enables `/api/sync/mpd`
-  and the "sync with mpd" button in the UI.
-- `-subsonic` (or `SUBSONIC_URL`) with `SUBSONIC_USER`/`SUBSONIC_PASSWORD` —
-  optional Subsonic-compatible server (Navidrome, gonic, Airsonic, ...);
-  enables `/api/sync/subsonic` and its UI button. Uses the ID3 endpoints, i.e.
-  album artists, with salted token auth.
-- Web UI at http://localhost:8080/ — artists with gaps listed first with
-  missing counts; search, mark releases owned/ignored, untrack artists.
+Open http://localhost:8080. Everything works without flags too — you just
+lose the extras:
 
-Release lists are cached in SQLite for 24 h; `refresh=1` (or the UI's Refresh
-button) forces a re-fetch. Both sources are rate-limited client-side
-(~1 req/s), so the first fetch of a large discography takes a few seconds.
+| Flag / env var | What it enables |
+|---|---|
+| `-mpd` / `MPD_HOST` | syncing straight from MPD. Accepts `host`, `host:port`, `password@host`, or a socket path. `MPD_PASSWORD` works too. |
+| `-subsonic` / `SUBSONIC_URL` + `SUBSONIC_USER`, `SUBSONIC_PASSWORD` | syncing from Navidrome, gonic, Airsonic, … |
+| `-discogs-token` / `DISCOGS_TOKEN` | Discogs as a second source — catches vinyl-only and obscure releases. Free token: discogs.com/settings/developers → "Generate new token". |
+| `-db`, `-addr` | database path and listen address. |
 
-## API
+## Getting your library in
 
-Artist IDs are MusicBrainz MBIDs.
+**Small library?** Just click "sync mpd" (or subsonic) in the web UI. Every
+artist is looked up live; expect a few seconds per artist because MusicBrainz
+and Discogs are rate-limited.
 
-```
-GET /api/search/artists?q=<name>
-    → {"artists": [{"id", "name", "disambiguation", ...}]}
+**Large library?** Do the initial import from MusicBrainz database dumps
+instead — minutes instead of hours. From the newest dated directory at
+https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/ grab:
 
-GET /api/artists                       # tracked artists, most missing first
-    → {"artists": [{..., "total": 10, "owned": 2, "missing": 8}]}
-
-DELETE /api/artists/{mbid}             # untrack: removes artist + all state
-
-GET /api/artists/{mbid}/releases
-    ?types=album,ep     # default; also: single, all, variants (live/comp/remix)
-    &missing=only       # only releases not marked owned/ignored
-    &refresh=1          # bypass 24h cache
-    → {"artist": {...}, "releases": [{"id", "title", "primaryType",
-       "firstReleaseDate", "sources": ["musicbrainz","discogs"],
-       "state": "owned"|"ignored"|"", "missing": true|false}]}
-
-PUT /api/releases/{id}/state
-    body: {"state": "owned" | "ignored" | ""}   # "" resets to missing
-
-POST /api/sync
-    body: {"artists": [{"name": "Boards of Canada",   # or "mbid": "..."
-                        "albums": ["Geogaddi",
-                                   {"title": "Twoism", "mbid": "<release-group MBID>"}]}]}
-    → {"results": [{"artist": {...}, "owned": 3,
-        "unmatched": ["titles that matched nothing"],
-        "missing": [release groups you don't own]}]}
-```
-
-Album entries are either bare title strings or objects with a `mbid` — the
-MusicBrainz *release-group* ID (the `MUSICBRAINZ_RELEASEGROUPID` tag written
-by Picard/beets). MBID matches are exact and tried first; titles fall back to
-the same normalizer the sources use, so `"Music Has the Right to Children
-(2013 Remaster)"` matches the plain release group. Artists not seen before
-are fetched from the sources during the sync, so the first sync of a big
-library takes a while (rate limits); after that everything is cached.
-
-```
-POST /api/sync/mpd[?artist=<substring>][&skip_existing=1]
-POST /api/sync/subsonic[?artist=<substring>][&skip_existing=1]
-    # starts a background pull sync from the configured player server
-    → 202 {"started": true}   (409 if one is already running)
-
-GET /api/sync/status
-    → {"running", "processed", "total", "current",
-       "owned", "missing", "skipped", "failed", "unmatched"}
-```
-
-The MPD sync runs as a background job on the server — a first sync of a large
-library takes longer than any HTTP request should live, so the POST returns
-immediately and progress comes from `/api/sync/status` (the web UI polls it
-and survives page reloads). Per-artist detail is in the server log.
-
-`skip_existing=1` (or `"skipExisting": true` in the `/api/sync` body) skips
-artists already tracked in the database without touching the sources, making
-re-syncs of a large library near-instant. Leave it off when you've ripped new
-albums of already-tracked artists and want them marked owned.
-
-The MPD pull uses `MUSICBRAINZ_RELEASEGROUPID` tags when your mpd exposes
-them (add the tag to `metadata_to_use` in mpd.conf), falling back to album
-titles otherwise. The `?artist=` filter limits the sync to matching album
-artists — handy for incremental runs.
-
-### Initial import from a MusicBrainz dump
-
-For a large library, the first sync is faster from a database dump than from
-the rate-limited API. From the newest date directory under
-https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/ download:
-
-- **release-group.tar.xz** (~1 GB) — required. The artist dump is not needed;
-  release groups embed their artist credits.
-- **release.tar.xz** (larger) — optional but recommended. Adds release-title
-  aliases so rips named after a specific version ("Aaliyah: Edition 2004")
-  match their album and are marked owned during the import itself.
+- `release-group.tar.xz` (~1 GB) — required
+- `release.tar.xz` — optional but worth it: it knows the title of every
+  *version* of every album, so a rip named "Aaliyah: Edition 2004" is
+  recognized as the album "Aaliyah" and marked owned right away
 
 ```sh
 ./dropwatch import -dump release-group.tar.xz -release-dump release.tar.xz \
-  -mpd localhost:6600 -db dropwatch.db
+  -mpd localhost:6600
 ```
 
-Both flags also accept the extracted NDJSON files, which skips xz
-decompression and is much faster if you have the disk space.
+Both files can also be given pre-extracted, which skips the slow xz
+decompression. The importer only keeps artists it's *sure* about: the name
+must match and at least one of your albums must appear in that artist's
+discography (that's also how two artists with the same name are told apart).
+Everything it wasn't sure about is printed at the end.
 
-The importer streams the dump once (needs `tar` + `xz`), matches your MPD
-album artists against the embedded artist credits, and only imports
-**confident matches**: the name matched and at least one of your albums for
-that artist exists in the candidate's discography (this is also how same-named
-artists are disambiguated). Owned albums are marked in the same pass.
-Without `-release-dump`, the importer matches by normalized group title only.
-After importing, run **one full sync with "only
-new artists" unchecked**: tracked artists resolve locally (no API searches),
-and any artist whose albums didn't all match gets refetched live — including
-release-title aliases, so reissue-titled rips ("Album: Edition 2004") heal
-automatically. Artists the import skipped entirely are resolved by the same
-pass via live search. After that, routine syncs with "only new artists"
-checked are the cheap default. Discogs data isn't in the dump either; it's
-merged in per artist on the next refresh.
+Then, once: run a sync from the web UI with "only new artists" **unchecked**.
+This picks up the artists the import skipped and double-checks the rest
+against the live API. It's cheap — artists already in the database don't
+cause any API traffic unless something doesn't match. After that, day-to-day
+syncs with "only new artists" checked are near-instant.
 
-### Syncing your local library (push, without -mpd)
+## The web UI
 
-From mpd:
+- **artists** — your artists, with owned/total counts and how many albums
+  are missing. Filter as you type. Artists with gaps are listed first.
+- **library** — everything you own, filterable and sortable, with toggles
+  for albums / EPs / other.
+- **lookup** — search MusicBrainz to start tracking an artist you don't have
+  locally yet. This is the only place that searches the outside world.
 
-```sh
-mpc list albumartist | while read -r artist; do
-  jq -n --arg a "$artist" \
-    '{name: $a, albums: [inputs]}' < <(mpc list album albumartist "$artist" | jq -R .)
-done | jq -s '{artists: .}' \
-  | curl -s -X POST localhost:8080/api/sync -H 'Content-Type: application/json' -d @- \
-  | jq -r '.results[] | .artist.name as $a | .missing[] | "\($a): \(.firstReleaseDate[:4]) \(.title)"'
+On an artist page you can mark any release owned or ignored, show variants
+(live albums, compilations), re-fetch from the sources, sync just this one
+artist from your player, or untrack the artist. Anything you own is always
+visible, whatever the filters say.
+
+## Using it from scripts
+
+Artist IDs are MusicBrainz IDs. All responses are JSON.
+
+```
+GET  /api/search/artists?q=name          search MusicBrainz
+GET  /api/artists                        tracked artists with counts
+GET  /api/artists/{id}/releases          one artist's releases
+       ?missing=only  ?types=all  ?refresh=1
+DELETE /api/artists/{id}                 untrack
+GET  /api/library                        everything owned
+PUT  /api/releases/{id}/state            {"state": "owned" | "ignored" | ""}
+POST /api/sync                           push your library as JSON (see below)
+POST /api/sync/mpd                       pull from MPD (background job)
+POST /api/sync/subsonic                  pull from Subsonic (background job)
+       ?artist=name  ?exact=1  ?skip_existing=1
+GET  /api/sync/status                    progress of the running sync
 ```
 
-From beets, with release-group MBIDs for exact matching:
+Find missing albums from a script:
 
 ```sh
-beet ls -a -f '$albumartist\t$album\t$mb_releasegroupid' \
-  | jq -Rn '[inputs | split("\t") | {artist: .[0], album: {title: .[1], mbid: .[2]}}]
-      | group_by(.artist)
-      | {artists: map({name: .[0].artist, albums: map(.album)})}' \
-  | curl -s -X POST localhost:8080/api/sync -H 'Content-Type: application/json' -d @-
-```
-
-From a `Artist/Album` directory tree:
-
-```sh
-find ~/music -mindepth 2 -maxdepth 2 -type d -printf '%P\n' \
-  | jq -Rn '[inputs | split("/") | {artist: .[0], album: .[1]}]
-      | group_by(.artist)
-      | {artists: map({name: .[0].artist, albums: map(.album)})}' \
-  | curl -s -X POST localhost:8080/api/sync -H 'Content-Type: application/json' -d @-
-```
-
-### Player integration example
-
-Find missing Boards of Canada albums from a script:
-
-```sh
-mbid=$(curl -s "localhost:8080/api/search/artists?q=boards+of+canada" \
-  | jq -r '.artists[0].id')
+mbid=$(curl -s "localhost:8080/api/search/artists?q=boards+of+canada" | jq -r '.artists[0].id')
 curl -s "localhost:8080/api/artists/$mbid/releases?missing=only" \
-  | jq -r '.releases[] | "\(.firstReleaseDate[:4]) \(.primaryType) \(.title)"'
+  | jq -r '.releases[] | "\(.firstReleaseDate[:4]) \(.title)"'
 ```
 
-Mark something as owned (e.g. after your library scanner finds it):
+Push a library without MPD/Subsonic — album entries are either plain titles
+or `{"title": ..., "mbid": "<release-group id>"}`:
 
 ```sh
-curl -s -X PUT "localhost:8080/api/releases/$rgid/state" \
-  -H 'Content-Type: application/json' -d '{"state":"owned"}'
+curl -s -X POST localhost:8080/api/sync -H 'Content-Type: application/json' \
+  -d '{"artists": [{"name": "Boards of Canada", "albums": ["Geogaddi", "Twoism EP"]}]}'
 ```
 
-## How grouping works
+## How matching works (short version)
 
-MusicBrainz *release groups* already collapse all pressings/editions of an
-album into one entity. Discogs *masters* do the same on their side. dropwatch
-matches Discogs masters to MB release groups by a normalized title
-(lowercased, punctuation stripped, edition suffixes like "(Deluxe Edition)" /
-"[2017 Remaster]" removed, trailing "EP" dropped) so one album appears exactly
-once no matter how many sources or versions carry it. The Discogs artist is
-resolved via MusicBrainz's URL relations when linked (reliable), falling back
-to Discogs search.
-
-Releases with MusicBrainz *secondary types* (live, compilation, remix, ...)
-are treated as variants and hidden by default.
+MusicBrainz already groups all versions of an album into one "release group";
+Discogs does the same with "masters". dropwatch merges the two by normalized
+title, and drops Discogs-only entries that turn out to be bootlegs, promos,
+or repackaged box sets. Your album titles are matched forgivingly — case,
+punctuation and edition suffixes like "(Deluxe Edition)" or ": Edition 2004"
+don't matter — and against the title of every known *version* of each album,
+plus MusicBrainz IDs from your tags when present. If something still doesn't
+match against cached data, the sync re-fetches that artist once and tries
+again, so stale data heals itself.

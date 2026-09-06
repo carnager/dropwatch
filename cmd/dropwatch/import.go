@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"dropwatch/internal/model"
 	"dropwatch/internal/mpdclient"
 	"dropwatch/internal/store"
+	"dropwatch/internal/subsonic"
 )
 
 // runImport bulk-populates the database from a MusicBrainz release-group JSON
@@ -29,24 +31,26 @@ func runImport(args []string) {
 	dumpPath := fs.String("dump", "", "path to MusicBrainz release-group JSON dump (release-group.tar.xz or extracted NDJSON)")
 	releaseDump := fs.String("release-dump", "", "optional path to the MusicBrainz release JSON dump (release.tar.xz or extracted NDJSON); adds release-title aliases so reissue-titled rips match")
 	mpdAddr := fs.String("mpd", os.Getenv("MPD_HOST"), "MPD server address (host[:port]); also read from MPD_HOST")
+	subsonicURL := fs.String("subsonic", os.Getenv("SUBSONIC_URL"), "Subsonic-compatible server URL; also read from SUBSONIC_URL (credentials via SUBSONIC_USER/SUBSONIC_PASSWORD)")
 	fs.Parse(args)
-	if *dumpPath == "" || *mpdAddr == "" {
-		log.Fatal("usage: dropwatch import -dump release-group.tar.xz [-release-dump release.tar.xz] -mpd host[:port] [-db dropwatch.db]\n" +
+	// An explicitly passed player flag beats the other's env-var default:
+	// "-subsonic URL" must not be shadowed by an inherited MPD_HOST.
+	explicit := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	if explicit["subsonic"] && !explicit["mpd"] {
+		*mpdAddr = ""
+	}
+	if explicit["mpd"] && !explicit["subsonic"] {
+		*subsonicURL = ""
+	}
+	if *dumpPath == "" || (*mpdAddr == "" && *subsonicURL == "") {
+		log.Fatal("usage: dropwatch import -dump release-group.tar.xz [-release-dump release.tar.xz] (-mpd host[:port] | -subsonic URL) [-db dropwatch.db]\n" +
 			"download the dumps from https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/ (newest date directory)")
 	}
 
-	host, password := *mpdAddr, os.Getenv("MPD_PASSWORD")
-	if pw, h, ok := strings.Cut(host, "@"); ok {
-		password, host = pw, h
-	}
-	client, err := mpdclient.Dial(host, password)
+	library, err := readLibrary(*mpdAddr, *subsonicURL)
 	if err != nil {
-		log.Fatalf("mpd: %v", err)
-	}
-	library, err := client.Library()
-	client.Close()
-	if err != nil {
-		log.Fatalf("mpd: %v", err)
+		log.Fatal(err)
 	}
 
 	st, err := store.Open(*dbPath)
@@ -251,7 +255,8 @@ func runImport(args []string) {
 			ok := (alb.MBID != "" && g.MBID == alb.MBID) || g.NormTitle == norm
 			if !ok {
 				for _, a := range rgAliases[g.ID] {
-					if a.norm == norm || a.light == light {
+					if a.norm == norm || a.light == light ||
+						(alb.MBID != "" && a.relMBID == alb.MBID) {
 						ok = true
 						break
 					}
@@ -345,6 +350,56 @@ func runImport(args []string) {
 		fmt.Println("→ run \"sync with mpd\" in the web UI with \"only new artists\" checked to resolve these via the live API.")
 	}
 	fmt.Println("note: Discogs data is not in the dump — it is merged in per artist on the next refresh.")
+}
+
+// readLibrary reads album artists from whichever player is configured. The
+// MPD shape (Title + MBID per album) is the common denominator; Subsonic
+// albums carry a release MBID instead of a release-group MBID, which the
+// alias matcher understands.
+func readLibrary(mpdAddr, subsonicURL string) ([]mpdclient.Artist, error) {
+	if mpdAddr != "" {
+		host, password := mpdAddr, os.Getenv("MPD_PASSWORD")
+		if pw, h, ok := strings.Cut(host, "@"); ok {
+			password, host = pw, h
+		}
+		client, err := mpdclient.Dial(host, password)
+		if err != nil {
+			return nil, fmt.Errorf("mpd: %w", err)
+		}
+		defer client.Close()
+		lib, err := client.Library()
+		if err != nil {
+			return nil, fmt.Errorf("mpd: %w", err)
+		}
+		return lib, nil
+	}
+	user, pass := os.Getenv("SUBSONIC_USER"), os.Getenv("SUBSONIC_PASSWORD")
+	if user == "" || pass == "" {
+		return nil, fmt.Errorf("-subsonic requires SUBSONIC_USER and SUBSONIC_PASSWORD env vars")
+	}
+	client := subsonic.New(subsonicURL, user, pass)
+	ctx := context.Background()
+	if err := client.Ping(ctx); err != nil {
+		return nil, err
+	}
+	log.Print("reading library from subsonic (one request per artist)…")
+	ssLib, err := client.Library(ctx, func(done, total int) {
+		if done%200 == 0 {
+			log.Printf("  %d/%d artists", done, total)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mpdclient.Artist, 0, len(ssLib))
+	for _, a := range ssLib {
+		artist := mpdclient.Artist{Name: a.Name}
+		for _, alb := range a.Albums {
+			artist.Albums = append(artist.Albums, mpdclient.Album{Title: alb.Title, MBID: alb.MBID})
+		}
+		out = append(out, artist)
+	}
+	return out, nil
 }
 
 // openDump streams a MusicBrainz JSON dump line-by-line, accepting either the
