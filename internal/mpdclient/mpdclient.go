@@ -91,20 +91,51 @@ func (c *Client) command(cmd string) ([]string, error) {
 // (not in mpd.conf's metadata_to_use, or untagged files) fall back to plain
 // album titles.
 func (c *Client) Library() ([]Artist, error) {
+	var out []Artist
 	lines, err := c.command("list musicbrainz_releasegroupid group album group albumartist")
 	if err == nil {
-		if out := parseLibrary(lines); len(out) > 0 {
-			return out, nil
-		}
-		// Some servers accept the command but ignore the group clauses and
-		// return a flat value list with no artists — treat that like an
-		// unsupported query rather than an empty library.
+		// May legitimately be empty on servers that accept the command but
+		// ignore the group clauses (flat value list, no artists).
+		out = parseLibrary(lines)
 	}
+	// Always merge in the plain album list: servers may omit albums that
+	// lack the MBID tag from the grouped response, and those still belong to
+	// the library (they just match by title instead of by ID).
 	lines, err = c.command("list album group albumartist")
 	if err != nil {
+		if len(out) > 0 {
+			return out, nil
+		}
 		return nil, err
 	}
-	return parseLibrary(lines), nil
+	return mergeLibraries(out, parseLibrary(lines)), nil
+}
+
+// mergeLibraries adds artists/albums present only in the plain listing to the
+// MBID-grouped one, preserving MBIDs where both have the album.
+func mergeLibraries(withMBIDs, plain []Artist) []Artist {
+	artistIdx := make(map[string]int, len(withMBIDs))
+	for i, a := range withMBIDs {
+		artistIdx[a.Name] = i
+	}
+	for _, pa := range plain {
+		i, ok := artistIdx[pa.Name]
+		if !ok {
+			artistIdx[pa.Name] = len(withMBIDs)
+			withMBIDs = append(withMBIDs, pa)
+			continue
+		}
+		have := make(map[string]bool, len(withMBIDs[i].Albums))
+		for _, alb := range withMBIDs[i].Albums {
+			have[alb.Title] = true
+		}
+		for _, alb := range pa.Albums {
+			if !have[alb.Title] {
+				withMBIDs[i].Albums = append(withMBIDs[i].Albums, alb)
+			}
+		}
+	}
+	return withMBIDs
 }
 
 func parseLibrary(lines []string) []Artist {

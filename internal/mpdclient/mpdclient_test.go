@@ -33,6 +33,19 @@ func TestParseLibraryRepeatedArtistAndUnknownTags(t *testing.T) {
 	}
 }
 
+func TestMergeLibraries(t *testing.T) {
+	tagged := []Artist{{Name: "A", Albums: []Album{{Title: "X", MBID: "m1"}}}}
+	plain := []Artist{
+		{Name: "A", Albums: []Album{{Title: "X"}, {Title: "Y"}}}, // Y untagged
+		{Name: "B", Albums: []Album{{Title: "Z"}}},               // artist fully untagged
+	}
+	out := mergeLibraries(tagged, plain)
+	if len(out) != 2 || len(out[0].Albums) != 2 || out[0].Albums[0].MBID != "m1" ||
+		out[0].Albums[1].Title != "Y" || out[1].Name != "B" {
+		t.Fatalf("bad merge: %+v", out)
+	}
+}
+
 func TestParseLibraryFlatMBIDListYieldsNothing(t *testing.T) {
 	// A server that ignores the group clauses returns bare values; that must
 	// parse to zero artists so Library() falls back to the plain query.
