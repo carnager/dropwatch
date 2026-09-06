@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dropwatch</title>
+<style>
+  :root {
+    --bg: #faf9f7; --text: #21201d; --muted: #8a877f; --faint: #b5b2aa;
+    --line: #e7e5e0; --hover: #f1efeb;
+    --accent: #b3541e; --owned: #4a7c59; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131312; --text: #d9d6cf; --muted: #7d7a72; --faint: #55534d;
+      --line: #262522; --hover: #1b1a18;
+      --accent: #d97a3d; --owned: #6fa87f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+
+  header { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 2.2rem; }
+  .wordmark { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
+  .wordmark b { color: var(--accent); font-weight: 700; }
+  header .sub { color: var(--muted); font-size: .8rem; }
+
+  .searchbar { display: flex; gap: .6rem; margin-bottom: 2rem; }
+  input[type=search] {
+    flex: 1; padding: .5rem 0; border: 0; border-bottom: 1px solid var(--line);
+    background: transparent; color: var(--text); font: inherit; outline: none;
+  }
+  input[type=search]:focus { border-bottom-color: var(--accent); }
+  input[type=search]::placeholder { color: var(--faint); }
+  input.inline { font-size: .85rem; padding: .2rem 0; max-width: 15rem; flex: 1; }
+  .rel .artist { color: var(--muted); }
+
+  button {
+    border: 0; background: transparent; color: var(--muted); font: inherit;
+    font-size: .85rem; cursor: pointer; padding: .25rem .4rem;
+  }
+  button:hover { color: var(--text); }
+  button:disabled { color: var(--faint); cursor: default; }
+  button.danger { color: var(--accent); }
+
+  .sectionhead {
+    display: flex; align-items: baseline; justify-content: space-between;
+    border-bottom: 1px solid var(--line); padding-bottom: .4rem; margin-bottom: .2rem;
+  }
+  .sectionhead h2 {
+    margin: 0; font-size: .75rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--muted);
+  }
+  .sectionhead .agg { font-family: var(--mono); font-size: .75rem; color: var(--muted); }
+
+  .row {
+    display: flex; align-items: baseline; gap: .8rem;
+    padding: .55rem .4rem; margin: 0 -.4rem;
+    border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  .row:hover { background: var(--hover); }
+  .row .name { font-weight: 500; }
+  .row .dis { color: var(--faint); font-size: .8rem; }
+  .row .spring { flex: 1; }
+  .row .frac { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+  .row .gap { font-family: var(--mono); font-size: .8rem; color: var(--accent); min-width: 5.5em; text-align: right; }
+  .row .gap.done { color: var(--faint); }
+
+  .empty { color: var(--muted); padding: 1.5rem 0; font-size: .9rem; }
+
+  /* artist page */
+  .crumbs { margin-bottom: 1.6rem; }
+  .crumbs button { padding-left: 0; }
+  .artisthead { display: flex; align-items: baseline; gap: .9rem; margin-bottom: .3rem; }
+  .artisthead h2 { margin: 0; font-size: 1.5rem; letter-spacing: -0.02em; }
+  .artisthead .counts { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+  .filters { display: flex; gap: .2rem; align-items: center; margin: 1rem 0 1.2rem; }
+  .pill {
+    font-size: .78rem; padding: .18rem .6rem; border-radius: 3px;
+    color: var(--muted); border: 1px solid transparent;
+  }
+  .pill.on { color: var(--text); border-color: var(--line); background: var(--hover); }
+  .filters .spring { flex: 1; }
+
+  .rel {
+    display: flex; align-items: baseline; gap: .8rem;
+    padding: .45rem .4rem; margin: 0 -.4rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .rel:hover { background: var(--hover); }
+  .rel .year { font-family: var(--mono); font-size: .8rem; color: var(--muted); width: 2.9em; flex-shrink: 0; }
+  .rel .title { min-width: 0; }
+  .rel .tag {
+    font-family: var(--mono); font-size: .68rem; color: var(--faint);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .rel .spring { flex: 1; }
+  .rel .src { font-family: var(--mono); font-size: .68rem; color: var(--faint); }
+  .rel .st { display: flex; gap: .1rem; visibility: hidden; }
+  .rel:hover .st { visibility: visible; }
+  .rel .st button { font-size: .78rem; }
+  .rel.owned .title { color: var(--muted); }
+  .rel.owned .year::before { content: ""; }
+  .rel.owned::before { content: "✓"; color: var(--owned); font-size: .8rem; width: 0; margin-left: -.9rem; margin-right: .1rem; }
+  .rel.ignored { opacity: .45; }
+  .rel.ignored .title { text-decoration: line-through; text-decoration-color: var(--faint); }
+  .rel.missing .year { color: var(--accent); }
+  .rel .st button.cur { color: var(--accent); }
+
+  .note { color: var(--muted); font-size: .85rem; margin: 1rem 0; }
+  .hidden { display: none; }
+  @media (max-width: 540px) {
+    .row .frac, .rel .src { display: none; }
+    .rel .st { visibility: visible; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="wordmark">drop<b>watch</b></span>
+    <span class="sub" id="mpdSub"></span>
+  </header>
+
+  <form class="searchbar" id="searchForm">
+    <input type="search" id="q" placeholder="Search for an artist…" autocomplete="off">
+  </form>
+
+  <div id="home">
+    <div class="filters" id="homeTabs">
+      <button type="button" class="pill on" data-tab="artists">artists</button>
+      <button type="button" class="pill" data-tab="library">library</button>
+    </div>
+
+    <div id="librarySection" class="hidden">
+      <div class="filters">
+        <input type="search" id="libFilter" class="inline" placeholder="filter artist or title…" autocomplete="off">
+        <span class="spring"></span>
+        <button type="button" class="pill lib-type on" data-t="Album">albums</button>
+        <button type="button" class="pill lib-type on" data-t="EP">eps</button>
+        <button type="button" class="pill lib-type" data-t="other">other</button>
+        <button type="button" class="pill lib-sort on" data-s="artist">by artist</button>
+        <button type="button" class="pill lib-sort" data-s="year">by year</button>
+        <button type="button" class="pill lib-sort" data-s="title">by title</button>
+      </div>
+      <div class="sectionhead"><h2>Library</h2><span class="agg" id="libAgg"></span></div>
+      <div id="libList"></div>
+    </div>
+
+    <div id="artistsTab">
+    <div id="searchSection" class="hidden">
+      <div class="sectionhead"><h2>Search results</h2><button type="button" id="clearSearch">clear</button></div>
+      <div id="searchResults"></div>
+    </div>
+
+    <div id="gapsSection">
+      <div class="sectionhead">
+        <h2>Missing</h2>
+        <span class="agg" id="gapsAgg"></span>
+      </div>
+      <div id="gapsList"></div>
+    </div>
+
+    <div id="completeSection" class="hidden">
+      <div class="sectionhead"><h2>Complete</h2></div>
+      <div id="completeList"></div>
+    </div>
+
+    <div class="note" id="homeNote"></div>
+    </div>
+  </div>
+
+  <div id="artistView" class="hidden">
+    <div class="crumbs"><button id="back">← all artists</button></div>
+    <div class="artisthead">
+      <h2 id="artistName"></h2>
+      <span class="counts" id="artistCounts"></span>
+    </div>
+    <div class="filters">
+      <button type="button" class="pill on" data-f="Album">albums</button>
+      <button type="button" class="pill on" data-f="EP">eps</button>
+      <button type="button" class="pill" data-f="missing">missing only</button>
+      <span class="spring"></span>
+      <button type="button" id="refresh">refresh sources</button>
+      <button type="button" id="untrack">untrack</button>
+    </div>
+    <div class="note hidden" id="status"></div>
+    <div id="releases"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let currentArtist = null;
+let releases = [];
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function show(view) {
+  $("home").classList.toggle("hidden", view !== "home");
+  $("artistView").classList.toggle("hidden", view !== "artist");
+}
+
+/* ---------- home ---------- */
+
+function artistRow(a) {
+  const row = el("div", "row");
+  row.appendChild(el("span", "name", a.name));
+  if (a.disambiguation) row.appendChild(el("span", "dis", a.disambiguation));
+  row.appendChild(el("span", "spring"));
+  if (a.total !== undefined) {
+    row.appendChild(el("span", "frac", `${a.owned}/${a.total}`));
+    row.appendChild(a.missing > 0
+      ? el("span", "gap", `${a.missing} missing`)
+      : el("span", "gap done", "complete"));
+  }
+  row.onclick = () => openArtist(a);
+  return row;
+}
+
+async function loadHome() {
+  const { artists } = await api("/api/artists");
+  const gaps = artists.filter(a => a.missing > 0);
+  const complete = artists.filter(a => a.missing === 0);
+
+  const gl = $("gapsList");
+  gl.innerHTML = "";
+  if (!artists.length) {
+    gl.appendChild(el("div", "empty", "Nothing tracked yet — search for an artist above, or sync your player."));
+    $("gapsAgg").textContent = "";
+  } else if (!gaps.length) {
+    gl.appendChild(el("div", "empty", "No gaps. Your collection is complete."));
+    $("gapsAgg").textContent = "";
+  } else {
+    for (const a of gaps) gl.appendChild(artistRow(a));
+    const total = gaps.reduce((n, a) => n + a.missing, 0);
+    $("gapsAgg").textContent = `${total} releases across ${gaps.length} artists`;
+  }
+
+  $("completeSection").classList.toggle("hidden", !complete.length);
+  const cl = $("completeList");
+  cl.innerHTML = "";
+  for (const a of complete) cl.appendChild(artistRow(a));
+}
+
+/* ---------- library tab ---------- */
+
+let library = null;
+const libState = { types: { Album: true, EP: true, other: false }, sort: "artist", filter: "" };
+
+document.querySelectorAll("#homeTabs .pill").forEach(p => {
+  p.onclick = () => {
+    document.querySelectorAll("#homeTabs .pill").forEach(q => q.classList.toggle("on", q === p));
+    const lib = p.dataset.tab === "library";
+    $("librarySection").classList.toggle("hidden", !lib);
+    $("artistsTab").classList.toggle("hidden", lib);
+    if (lib) loadLibrary();
+  };
+});
+document.querySelectorAll(".lib-type").forEach(p => {
+  p.onclick = () => {
+    libState.types[p.dataset.t] = !libState.types[p.dataset.t];
+    p.classList.toggle("on", libState.types[p.dataset.t]);
+    renderLibrary();
+  };
+});
+document.querySelectorAll(".lib-sort").forEach(p => {
+  p.onclick = () => {
+    libState.sort = p.dataset.s;
+    document.querySelectorAll(".lib-sort").forEach(q => q.classList.toggle("on", q === p));
+    renderLibrary();
+  };
+});
+$("libFilter").oninput = () => { libState.filter = $("libFilter").value.trim().toLowerCase(); renderLibrary(); };
+
+async function loadLibrary() {
+  if (library === null) {
+    const d = await api("/api/library");
+    library = d.library;
+  }
+  renderLibrary();
+}
+
+function renderLibrary() {
+  if (library === null) return;
+  const box = $("libList");
+  box.innerHTML = "";
+  const q = libState.filter;
+  let rows = library.filter(e => {
+    const t = e.primaryType === "Album" || e.primaryType === "EP" ? e.primaryType : "other";
+    if (!libState.types[t]) return false;
+    if (q && !e.title.toLowerCase().includes(q) && !e.artistName.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const date = e => e.firstReleaseDate || "0000";
+  if (libState.sort === "year") rows.sort((a, b) => date(b).localeCompare(date(a)));
+  else if (libState.sort === "title") rows.sort((a, b) => a.title.localeCompare(b.title));
+  // "artist" keeps server order: sort_name, then release date
+
+  $("libAgg").textContent = `${rows.length} of ${library.length} owned`;
+  if (!rows.length) {
+    box.appendChild(el("div", "empty", library.length ? "Nothing matches the filter." : "Nothing owned yet — sync your player."));
+    return;
+  }
+  const cap = 1500;
+  for (const e of rows.slice(0, cap)) {
+    const row = el("div", "rel owned");
+    row.appendChild(el("span", "year", (e.firstReleaseDate || "").slice(0, 4) || "—"));
+    row.appendChild(el("span", "artist", e.artistName));
+    row.appendChild(el("span", "title", e.title));
+    if (e.primaryType !== "Album") row.appendChild(el("span", "tag", e.primaryType));
+    row.appendChild(el("span", "spring"));
+    row.style.cursor = "pointer";
+    row.onclick = () => openArtist({ id: e.artistId, name: e.artistName });
+    box.appendChild(row);
+  }
+  if (rows.length > cap) {
+    box.appendChild(el("div", "empty", `…and ${rows.length - cap} more — narrow the filter to see them.`));
+  }
+}
+
+/* ---------- search ---------- */
+
+$("searchForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const q = $("q").value.trim();
+  if (!q) return;
+  show("home");
+  $("searchSection").classList.remove("hidden");
+  const box = $("searchResults");
+  box.innerHTML = "";
+  box.appendChild(el("div", "empty", "Searching…"));
+  try {
+    const { artists } = await api(`/api/search/artists?q=${encodeURIComponent(q)}`);
+    box.innerHTML = "";
+    if (!artists.length) box.appendChild(el("div", "empty", "No matches on MusicBrainz."));
+    for (const a of artists) box.appendChild(artistRow(a));
+  } catch (err) {
+    box.innerHTML = "";
+    box.appendChild(el("div", "empty", "Search failed: " + err.message));
+  }
+};
+$("clearSearch").onclick = () => {
+  $("searchSection").classList.add("hidden");
+  $("searchResults").innerHTML = "";
+  $("q").value = "";
+};
+
+/* ---------- artist ---------- */
+
+const filters = { Album: true, EP: true, missing: false };
+
+document.querySelectorAll(".pill").forEach(p => {
+  p.onclick = () => {
+    filters[p.dataset.f] = !filters[p.dataset.f];
+    p.classList.toggle("on", filters[p.dataset.f]);
+    renderReleases();
+  };
+});
+
+function stateButton(r, label, state) {
+  const b = el("button", r.state === state ? "cur" : "", label);
+  b.onclick = async (e) => {
+    e.stopPropagation();
+    const next = r.state === state ? "" : state;
+    await api(`/api/releases/${encodeURIComponent(r.id)}/state`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: next }),
+    });
+    r.state = next;
+    r.missing = next === "";
+    library = null; // owned set changed; refetch on next library view
+    renderReleases();
+  };
+  return b;
+}
+
+function renderReleases() {
+  const box = $("releases");
+  box.innerHTML = "";
+  const visible = releases.filter(r =>
+    filters[r.primaryType] &&
+    !(r.secondaryTypes || []).length &&
+    (!filters.missing || r.missing));
+  const missing = visible.filter(r => r.missing).length;
+  const owned = visible.filter(r => r.state === "owned").length;
+  $("artistCounts").textContent = `${owned}/${visible.length} owned · ${missing} missing`;
+  if (!visible.length) {
+    box.appendChild(el("div", "empty", "Nothing to show with these filters."));
+    return;
+  }
+  for (const r of visible) {
+    const row = el("div", "rel " + (r.state || "missing"));
+    row.appendChild(el("span", "year", (r.firstReleaseDate || "").slice(0, 4) || "—"));
+    row.appendChild(el("span", "title", r.title));
+    if (r.primaryType !== "Album") row.appendChild(el("span", "tag", r.primaryType));
+    row.appendChild(el("span", "spring"));
+    row.appendChild(el("span", "src",
+      (r.sources || []).map(s => s === "musicbrainz" ? "mb" : "dc").join(" ")));
+    const st = el("span", "st");
+    st.appendChild(stateButton(r, "owned", "owned"));
+    st.appendChild(stateButton(r, "ignore", "ignored"));
+    row.appendChild(st);
+    box.appendChild(row);
+  }
+}
+
+async function openArtist(a, refresh = false) {
+  currentArtist = a;
+  show("artist");
+  $("artistName").textContent = a.name;
+  $("artistCounts").textContent = "";
+  $("releases").innerHTML = "";
+  const status = $("status");
+  status.textContent = refresh
+    ? "Re-fetching from sources — rate-limited, this can take a minute…"
+    : "Loading…";
+  status.classList.remove("hidden");
+  try {
+    const url = `/api/artists/${a.id}/releases?types=all${refresh ? "&refresh=1" : ""}`;
+    const data = await api(url);
+    releases = data.releases;
+    $("artistName").textContent = data.artist.name;
+    status.classList.add("hidden");
+    renderReleases();
+  } catch (err) {
+    status.textContent = "Failed: " + err.message;
+  }
+}
+
+$("back").onclick = () => { show("home"); loadHome(); };
+$("refresh").onclick = () => currentArtist && openArtist(currentArtist, true);
+
+// Two-step inline confirm: first click arms it, second click deletes.
+let untrackArmed = null;
+$("untrack").onclick = async () => {
+  const b = $("untrack");
+  if (untrackArmed !== currentArtist) {
+    untrackArmed = currentArtist;
+    b.textContent = "really untrack?";
+    b.classList.add("danger");
+    setTimeout(() => {
+      if (untrackArmed === currentArtist) {
+        untrackArmed = null;
+        b.textContent = "untrack";
+        b.classList.remove("danger");
+      }
+    }, 4000);
+    return;
+  }
+  try {
+    await api(`/api/artists/${currentArtist.id}`, { method: "DELETE" });
+    untrackArmed = null;
+    b.textContent = "untrack";
+    b.classList.remove("danger");
+    show("home");
+    loadHome();
+  } catch (err) {
+    $("status").textContent = "Untrack failed: " + err.message;
+    $("status").classList.remove("hidden");
+  }
+};
+
+/* ---------- mpd ---------- */
+
+api("/api/config").then(c => {
+  const providers = [["mpd", c.mpd], ["subsonic", c.subsonic]].filter(p => p[1]).map(p => p[0]);
+  if (!providers.length) return;
+  const sub = $("mpdSub");
+  const links = [];
+
+  const lbl = el("label", "", "");
+  lbl.style.cssText = "font-size:.8rem;color:var(--muted);cursor:pointer";
+  const onlyNew = document.createElement("input");
+  onlyNew.type = "checkbox";
+  onlyNew.checked = localStorage.getItem("dropwatch.onlyNew") !== "0";
+  onlyNew.onchange = () => localStorage.setItem("dropwatch.onlyNew", onlyNew.checked ? "1" : "0");
+  lbl.append(onlyNew, " only new artists");
+
+  let pollTimer = null;
+  function describe(st) {
+    const parts = [`${st.owned} owned`, `${st.missing} missing`];
+    if (st.skipped) parts.push(`${st.skipped} skipped`);
+    if (st.unmatched) parts.push(`${st.unmatched} albums unmatched`);
+    if (st.failed) parts.push(`${st.failed} artists failed`);
+    return parts.join(", ");
+  }
+  function setBusy(busy) {
+    for (const l of links) {
+      l.btn.disabled = busy;
+      l.btn.textContent = busy ? "syncing…" : `sync with ${l.name}`;
+    }
+  }
+  async function poll() {
+    let st;
+    try { st = await api("/api/sync/status"); } catch { return; }
+    if (st.idle) return;
+    if (st.running) {
+      setBusy(true);
+      $("homeNote").textContent =
+        (st.total ? `Syncing ${st.processed}/${st.total}` : "Syncing") +
+        (st.current ? ` — ${st.current}` : "") +
+        ` · ${describe(st)}`;
+      if (st.processed % 5 === 0) loadHome(); // grow the list as artists land
+      pollTimer = setTimeout(poll, 2000);
+    } else {
+      setBusy(false);
+      $("homeNote").textContent = st.error
+        ? `Sync failed: ${st.error}`
+        : `Sync finished: ${st.processed} artists — ${describe(st)}.` +
+          (st.failed || st.unmatched ? " Details in the server log." : "");
+      library = null;
+      loadHome();
+    }
+  }
+  for (const name of providers) {
+    const btn = el("button", "", `sync with ${name}`);
+    btn.onclick = async () => {
+      setBusy(true);
+      try {
+        const url = `/api/sync/${name}` + (onlyNew.checked ? "?skip_existing=1" : "");
+        await api(url, { method: "POST" });
+        poll();
+      } catch (err) {
+        setBusy(false);
+        $("homeNote").textContent = `${name} sync failed to start: ` + err.message;
+      }
+    };
+    links.push({ name, btn });
+    sub.append(btn);
+  }
+  sub.append(lbl);
+  poll(); // resume progress display if a sync is already running
+}).catch(() => {});
+
+show("home");
+loadHome();
+</script>
+</body>
+</html>
