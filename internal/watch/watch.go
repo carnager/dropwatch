@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -81,6 +82,11 @@ func newWatcher(st *store.Store, dir, userAgent, baseURL string) (*Watcher, erro
 		return nil, err
 	}
 	if err := st.LoadDumpSetting("status", &w.status); err != nil {
+		cancel()
+		return nil, err
+	}
+	loc, _ := time.LoadLocation(w.settings.Schedule.Timezone)
+	if err := st.BackfillBaselineReleases(time.Now(), loc); err != nil {
 		cancel()
 		return nil, err
 	}
@@ -228,7 +234,7 @@ func (w *Watcher) check(ctx context.Context, previous string, loc *time.Location
 	if !versionPattern.MatchString(version) {
 		return previous, fmt.Errorf("invalid dump version in LATEST: %q", version)
 	}
-	if version == previous && !needsBaseline {
+	if version == previous && !needsBaseline && w.DumpPath() != "" {
 		return previous, nil
 	}
 	manifest, err := w.smallFile(ctx, w.baseURL+version+"/SHA256SUMS")
@@ -291,7 +297,22 @@ func (w *Watcher) check(ctx context.Context, previous string, loc *time.Location
 	if err := w.store.ApplyDump(ctx, tracked, groups, time.Now(), loc); err != nil {
 		return previous, err
 	}
+	// Keep the verified snapshot: syncs resolve new library artists against it
+	// instead of the rate-limited web service.
+	if err := os.Rename(file.Name(), w.keptPath()); err != nil {
+		log.Printf("keeping dump: %v", err)
+	}
 	return version, nil
+}
+
+func (w *Watcher) keptPath() string { return filepath.Join(w.dir, "release-group.tar.xz") }
+
+// DumpPath returns the last verified release-group dump, or "" if none is kept.
+func (w *Watcher) DumpPath() string {
+	if _, err := os.Stat(w.keptPath()); err != nil {
+		return ""
+	}
+	return w.keptPath()
 }
 
 type progressWriter struct{ watcher *Watcher }

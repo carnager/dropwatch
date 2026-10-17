@@ -14,6 +14,34 @@ type Artist struct {
 	Disambiguation string `json:"disambiguation,omitempty"`
 	Country        string `json:"country,omitempty"`
 	DiscogsID      int64  `json:"discogsId,omitempty"`
+
+	Aliases []string `json:"aliases,omitempty"` // registered names, from search results only
+}
+
+// Special-purpose MusicBrainz artists: never a library artist's identity.
+const (
+	VariousArtistsMBID = "89ad4ac3-39f7-470e-963a-56509c546377"
+	UnknownArtistMBID  = "125ec42a-7229-4250-afc5-e057484327fe"
+)
+
+// NamedAs reports whether name is this artist's name, its sort name read in
+// order ("Uematsu, Nobuo"), or a registered alias, after normalization. Fuzzy
+// search hits ("Marillion" for "Low Fat Getting High") fail it.
+func (a Artist) NamedAs(name string) bool {
+	want := NormalizeArtistName(name)
+	if want == "" {
+		return false
+	}
+	names := append([]string{a.Name, a.SortName}, a.Aliases...)
+	if last, first, ok := strings.Cut(a.SortName, ", "); ok {
+		names = append(names, first+" "+last)
+	}
+	for _, n := range names {
+		if NormalizeArtistName(n) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // ArtistSummary is an artist with aggregate counts over their canonical
@@ -110,6 +138,41 @@ func NormalizeArtistName(name string) string {
 	n = nonAlnum.ReplaceAllString(n, " ")
 	n = strings.Join(strings.Fields(n), " ")
 	return strings.TrimPrefix(n, "the ")
+}
+
+// jointSeparators split a credited name into its artists. Matched
+// case-insensitively against the raw name.
+var jointSeparators = []string{" & ", " and ", " + ", " feat. ", " feat ", " ft. ", " featuring ",
+	" vs. ", " vs ", " with ", " und ", " / ", ", "}
+
+// LeadArtist returns the first artist of a joint credit ("Dear Reader" for
+// "Dear Reader & Deutsches Filmorchester Babelsberg"), or "" when the name
+// has no separator.
+func LeadArtist(name string) string {
+	lower, cut := strings.ToLower(name), -1
+	for _, sep := range jointSeparators {
+		if i := strings.Index(lower, sep); i > 0 && (cut < 0 || i < cut) {
+			cut = i
+		}
+	}
+	if cut < 0 {
+		return ""
+	}
+	return strings.TrimSpace(name[:cut])
+}
+
+// IsGuestCredit reports whether a normalized alias is a joint credit led by
+// someone other than the artist with normalized name own.
+func IsGuestCredit(alias, own string) bool {
+	if alias == own || strings.HasPrefix(alias, own+" ") {
+		return false
+	}
+	for _, sep := range []string{" and ", " feat ", " ft ", " featuring ", " vs ", " with ", " und "} {
+		if strings.Contains(alias, sep) {
+			return true
+		}
+	}
+	return false
 }
 
 // NormalizeTitleLight folds case, punctuation and whitespace but strips

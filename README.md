@@ -22,13 +22,14 @@ lose the extras:
 |---|---|
 | `-mpd` / `MPD_HOST` | syncing straight from MPD. Accepts `host`, `host:port`, `password@host`, or a socket path. `MPD_PASSWORD` works too. |
 | `-subsonic` / `SUBSONIC_URL` + `SUBSONIC_USER`, `SUBSONIC_PASSWORD` | syncing from Navidrome, gonic, Airsonic, … |
+| `-melody` / `MELODY_SERVER` + `MELODY_PASSWORD` or `MELODY_PASSWORD_FILE` | syncing from a melody engine (`host[:port]`, default port 6603) |
 | `-discogs-token` / `DISCOGS_TOKEN` | Discogs as a second source — catches vinyl-only and obscure releases. Free token: discogs.com/settings/developers → "Generate new token". |
 | `-db`, `-addr` | database path and listen address. |
 | `-dump-dir` | temporary download directory for scheduled release checks; defaults to `<db path>.dumps`. |
 
 ## Getting your library in
 
-**Small library?** Just click "sync mpd" (or subsonic) in the web UI. Every
+**Small library?** Just click "sync mpd" (or subsonic, or melody) in the web UI. Every
 artist is looked up live; expect a few seconds per artist because MusicBrainz
 and Discogs are rate-limited.
 
@@ -56,7 +57,9 @@ Then, once: run a sync from the web UI with "only new artists" **unchecked**.
 This picks up the artists the import skipped and double-checks the rest
 against the live API. It's cheap — artists already in the database don't
 cause any API traffic unless something doesn't match. After that, day-to-day
-syncs with "only new artists" checked are near-instant.
+syncs with "only new artists" checked are near-instant: known artists are
+matched against the database only (new purchases still get marked owned), and
+new artists are looked up in the locally kept dump before the live API.
 
 ## The web UI
 
@@ -127,6 +130,7 @@ PUT  /api/releases/{id}/state            {"state": "owned" | "ignored" | ""}
 POST /api/sync                           push your library as JSON (see below)
 POST /api/sync/mpd                       pull from MPD (background job)
 POST /api/sync/subsonic                  pull from Subsonic (background job)
+POST /api/sync/melody                    pull from a melody engine (background job)
        ?artist=name  ?exact=1  ?skip_existing=1
 GET  /api/sync/status                    progress of the running sync
 GET  /api/dumps                          dump schedule and download status
@@ -144,7 +148,7 @@ curl -s "localhost:8080/api/artists/$mbid/releases?missing=only" \
   | jq -r '.releases[] | "\(.firstReleaseDate[:4]) \(.title)"'
 ```
 
-Push a library without MPD/Subsonic — album entries are either plain titles
+Push a library without MPD/Subsonic/melody — album entries are either plain titles
 or `{"title": ..., "mbid": "<release-group id>"}`:
 
 ```sh

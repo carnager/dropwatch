@@ -39,8 +39,8 @@ func TestDumpBaselineAndNotifications(t *testing.T) {
 	}
 	base := watchGroup("baseline", "2026-09-01")
 	apply(base)
-	if ns, unread, err := s.Notifications(now); err != nil || len(ns) != 0 || unread != 0 {
-		t.Fatalf("initial baseline made notifications: %v %d %v", ns, unread, err)
+	if ns, unread, err := s.Notifications(now, nil); err != nil || len(ns) != 1 || unread != 1 || ns[0].Kind != "new" {
+		t.Fatalf("initial baseline should announce the recent release: %v %d %v", ns, unread, err)
 	}
 	recent := watchGroup("recent", "2026-09-05")
 	future := watchGroup("future", "2026-09-10")
@@ -49,19 +49,57 @@ func TestDumpBaselineAndNotifications(t *testing.T) {
 	groups := []model.ReleaseGroup{base, recent, future, variant, watchGroup("old", "1990-01-01"), watchGroup("unknown", "")}
 	apply(groups...)
 	apply(groups...) // A repeated dump, including after a crash, is idempotent.
-	ns, unread, err := s.Notifications(now)
-	if err != nil || len(ns) != 2 || unread != 2 {
+	ns, unread, err := s.Notifications(now, nil)
+	if err != nil || len(ns) != 3 || unread != 3 {
 		t.Fatalf("notifications = %v, unread = %d, err = %v", ns, unread, err)
 	}
-	if ns[0].Kind != "upcoming" || ns[1].Kind != "new" {
+	if ns[0].Kind != "upcoming" || ns[1].Kind != "new" || ns[2].ReleaseID != "baseline" {
 		t.Fatalf("unexpected notification types: %v", ns)
 	}
-	if err := s.ReadNotifications(now); err != nil {
+	if err := s.ReadNotifications(now, nil); err != nil {
 		t.Fatal(err)
 	}
-	ns, unread, err = s.Notifications(now.AddDate(0, 0, 4))
-	if err != nil || len(ns) != 3 || unread != 1 || ns[0].Kind != "released" {
+	ns, unread, err = s.Notifications(now.AddDate(0, 0, 4), nil)
+	if err != nil || len(ns) != 4 || unread != 1 || ns[0].Kind != "released" {
 		t.Fatalf("release-day reminder = %v, unread = %d, err = %v", ns, unread, err)
+	}
+}
+
+func TestBackfillBaselineReleases(t *testing.T) {
+	s := watchStore(t)
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	live := watchGroup("live", "2026-09-01")
+	live.SecondaryTypes = []string{"Live"}
+	groups := []model.ReleaseGroup{watchGroup("recent", "2026-09-01"), watchGroup("old", "2020-01-01"), watchGroup("future", "2026-09-20"), live}
+	if err := s.SaveReleaseGroups("artist", groups); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO dump_baselines (artist_id, created_at) VALUES ('artist', ?)`, now.Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 { // The second call is a no-op.
+		if err := s.BackfillBaselineReleases(now, time.UTC); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ns, unread, err := s.Notifications(now, nil)
+	if err != nil || len(ns) != 1 || unread != 1 || ns[0].ReleaseID != "recent" || ns[0].Kind != "new" {
+		t.Fatalf("backfill = %v, unread = %d, err = %v", ns, unread, err)
+	}
+	if _, err := s.db.Exec(`UPDATE release_groups SET state = 'owned' WHERE id = 'recent'`); err != nil {
+		t.Fatal(err)
+	}
+	if ns, unread, _ := s.Notifications(now, nil); len(ns) != 0 || unread != 0 {
+		t.Fatalf("owned release still notified: %v %d", ns, unread)
+	}
+	if _, err := s.db.Exec(`DELETE FROM release_notifications`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BackfillBaselineReleases(now, time.UTC); err != nil {
+		t.Fatal(err)
+	}
+	if ns, _, _ := s.Notifications(now, nil); len(ns) != 0 {
+		t.Fatalf("backfill ran twice: %v", ns)
 	}
 }
 
@@ -120,14 +158,14 @@ func TestDumpReminderDatesAndCancellation(t *testing.T) {
 	}
 	apply("2026-09-10")
 	apply("2026-09-12")
-	if ns, _, _ := s.Notifications(time.Date(2026, 9, 11, 21, 59, 0, 0, time.UTC)); len(ns) != 0 {
+	if ns, _, _ := s.Notifications(time.Date(2026, 9, 11, 21, 59, 0, 0, time.UTC), nil); len(ns) != 0 {
 		t.Fatalf("postponed release notified early: %v", ns)
 	}
-	if ns, _, _ := s.Notifications(time.Date(2026, 9, 11, 22, 0, 0, 0, time.UTC)); len(ns) != 1 {
+	if ns, _, _ := s.Notifications(time.Date(2026, 9, 11, 22, 0, 0, 0, time.UTC), nil); len(ns) != 1 {
 		t.Fatalf("reminder not due at Berlin midnight: %v", ns)
 	}
 	apply("2026-09")
-	if ns, _, _ := s.Notifications(now.AddDate(0, 1, 0)); len(ns) != 0 {
+	if ns, _, _ := s.Notifications(now.AddDate(0, 1, 0), nil); len(ns) != 0 {
 		t.Fatalf("partial date left an invented reminder: %v", ns)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -159,5 +197,55 @@ func TestDumpRollsBackPartialWrites(t *testing.T) {
 	}
 	if baseline, err := s.HasDumpBaseline("artist"); err != nil || baseline {
 		t.Fatalf("failed transaction established baseline: %v %v", baseline, err)
+	}
+}
+
+func TestDropGuestAliasesOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertArtist(model.Artist{ID: "dfb", Name: "Deutsches Filmorchester Babelsberg"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveArtistAliases("dfb", "Deutsches Filmorchester Babelsberg", []string{"Dear Reader & Deutsches Filmorchester Babelsberg", "Filmorchester Babelsberg"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM dump_settings WHERE key = 'guest_aliases_dropped'`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, found, _ := s.ArtistByName("Dear Reader & Deutsches Filmorchester Babelsberg"); found {
+		t.Fatal("guest credit still resolves to the orchestra")
+	}
+	if _, found, _ := s.ArtistByName("Filmorchester Babelsberg"); !found {
+		t.Fatal("registered alias dropped")
+	}
+}
+
+func TestNotificationTypeFilter(t *testing.T) {
+	s := watchStore(t)
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	ep, single := watchGroup("ep", "2026-09-02"), watchGroup("single", "2026-09-03")
+	ep.PrimaryType, single.PrimaryType = "EP", "Single"
+	if err := s.ApplyDump(context.Background(), map[string]bool{"artist": true},
+		map[string][]model.ReleaseGroup{"artist": {watchGroup("album", "2026-09-01"), ep, single}}, now, time.UTC); err != nil {
+		t.Fatal(err)
+	}
+	ns, unread, err := s.Notifications(now, []string{"Album", "EP"})
+	if err != nil || len(ns) != 2 || unread != 2 || ns[0].PrimaryType != "EP" || ns[1].PrimaryType != "Album" {
+		t.Fatalf("filtered = %+v, unread = %d, err = %v", ns, unread, err)
+	}
+	if err := s.ReadNotifications(now, []string{"Single"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, unread, _ := s.Notifications(now, nil); unread != 2 {
+		t.Fatalf("reading singles touched other types: unread = %d", unread)
 	}
 }

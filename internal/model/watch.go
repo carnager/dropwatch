@@ -73,5 +73,6 @@ type ReleaseNotification struct {
 	Title       string `json:"title"`
 	ReleaseDate string `json:"releaseDate"`
 	Kind        string `json:"kind"`
+	PrimaryType string `json:"primaryType"` // Album, EP or Single
 	Unread      bool   `json:"unread"`
 }

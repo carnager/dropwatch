@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"dropwatch/internal/dump"
 	"dropwatch/internal/model"
 	"dropwatch/internal/mpdclient"
 	"dropwatch/internal/store"
@@ -31,23 +32,28 @@ func runImport(args []string) {
 	releaseDump := fs.String("release-dump", "", "optional path to the MusicBrainz release JSON dump (release.tar.xz or extracted NDJSON); adds release-title aliases so reissue-titled rips match")
 	mpdAddr := fs.String("mpd", os.Getenv("MPD_HOST"), "MPD server address (host[:port]); also read from MPD_HOST")
 	subsonicURL := fs.String("subsonic", os.Getenv("SUBSONIC_URL"), "Subsonic-compatible server URL; also read from SUBSONIC_URL (credentials via SUBSONIC_USER/SUBSONIC_PASSWORD)")
+	melodyAddr := fs.String("melody", os.Getenv("MELODY_SERVER"), "melody engine address (host[:port]); also read from MELODY_SERVER (password via MELODY_PASSWORD or MELODY_PASSWORD_FILE)")
 	fs.Parse(args)
-	// An explicitly passed player flag beats the other's env-var default:
+	// An explicitly passed player flag beats the others' env-var defaults:
 	// "-subsonic URL" must not be shadowed by an inherited MPD_HOST.
+	players := map[string]*string{"mpd": mpdAddr, "subsonic": subsonicURL, "melody": melodyAddr}
 	explicit := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
-	if explicit["subsonic"] && !explicit["mpd"] {
-		*mpdAddr = ""
+	fs.Visit(func(f *flag.Flag) {
+		if players[f.Name] != nil {
+			explicit[f.Name] = true
+		}
+	})
+	for name, value := range players {
+		if len(explicit) > 0 && !explicit[name] {
+			*value = ""
+		}
 	}
-	if explicit["mpd"] && !explicit["subsonic"] {
-		*subsonicURL = ""
-	}
-	if *dumpPath == "" || (*mpdAddr == "" && *subsonicURL == "") {
-		log.Fatal("usage: dropwatch import -dump release-group.tar.xz [-release-dump release.tar.xz] (-mpd host[:port] | -subsonic URL) [-db dropwatch.db]\n" +
+	if *dumpPath == "" || (*mpdAddr == "" && *subsonicURL == "" && *melodyAddr == "") {
+		log.Fatal("usage: dropwatch import -dump release-group.tar.xz [-release-dump release.tar.xz] (-mpd host[:port] | -subsonic URL | -melody host[:port]) [-db dropwatch.db]\n" +
 			"download the dumps from https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/ (newest date directory)")
 	}
 
-	library, err := readLibrary(*mpdAddr, *subsonicURL)
+	library, err := readLibrary(*mpdAddr, *subsonicURL, *melodyAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,119 +92,33 @@ func runImport(args []string) {
 		return
 	}
 
-	// candidate is one MusicBrainz artist that matched a library name. When
-	// several share a name, the one that actually has the library's albums
-	// wins.
-	type candidate struct {
-		artist model.Artist
-		libKey string
-		groups []model.ReleaseGroup
+	names := make(map[string]bool, len(libByNorm))
+	libAlbums := make(map[string][]mpdclient.Album, len(libByNorm))
+	for key, lib := range libByNorm {
+		names[key] = true
+		libAlbums[key] = lib.albums
 	}
-	candidates := map[string]*candidate{}
-
-	const variousArtistsMBID = "89ad4ac3-39f7-470e-963a-56509c546377"
-
-	type rgLine struct {
-		ID               string   `json:"id"`
-		Title            string   `json:"title"`
-		PrimaryType      string   `json:"primary-type"`
-		SecondaryTypes   []string `json:"secondary-types"`
-		FirstReleaseDate string   `json:"first-release-date"`
-		ArtistCredit     []struct {
-			Name       string `json:"name"`
-			JoinPhrase string `json:"joinphrase"`
-			Artist     struct {
-				ID       string `json:"id"`
-				Name     string `json:"name"`
-				SortName string `json:"sort-name"`
-			} `json:"artist"`
-		} `json:"artist-credit"`
-	}
-
-	sc, closeDump, err := openDump(*dumpPath)
+	candidates, err := dump.FindCandidates(context.Background(), *dumpPath, names, func(records int) {
+		log.Printf("scanned %dk release groups", records/1000)
+	})
 	if err != nil {
-		log.Fatalf("open dump: %v", err)
-	}
-
-	matchedNames := map[string]bool{}
-	record := func(artistID, artistName, sortName, libKey string, rg rgLine) {
-		matchedNames[libKey] = true
-		c, ok := candidates[artistID]
-		if !ok {
-			c = &candidate{
-				artist: model.Artist{ID: artistID, Name: artistName, SortName: sortName},
-				libKey: libKey,
-			}
-			candidates[artistID] = c
-		}
-		pt := rg.PrimaryType
-		if pt == "" {
-			pt = "Other"
-		}
-		c.groups = append(c.groups, model.ReleaseGroup{
-			ID: rg.ID, ArtistID: artistID, Title: rg.Title,
-			NormTitle: model.NormalizeTitle(rg.Title), PrimaryType: pt,
-			SecondaryTypes: rg.SecondaryTypes, FirstReleaseDate: rg.FirstReleaseDate,
-			MBID: rg.ID, Sources: []string{"musicbrainz"},
-		})
-	}
-
-	lines := 0
-	for sc.Scan() {
-		lines++
-		if lines%250000 == 0 {
-			log.Printf("scanned %dk release groups — %d/%d library artists seen (%d same-name candidates to disambiguate)",
-				lines/1000, len(matchedNames), len(libByNorm), len(candidates))
-		}
-		var rg rgLine
-		if err := json.Unmarshal(sc.Bytes(), &rg); err != nil || len(rg.ArtistCredit) == 0 {
-			continue
-		}
-		for _, credit := range rg.ArtistCredit {
-			if credit.Artist.ID == variousArtistsMBID {
-				continue
-			}
-			if key := normalizeName(credit.Artist.Name); libByNorm[key] != nil {
-				record(credit.Artist.ID, credit.Artist.Name, credit.Artist.SortName, key, rg)
-			} else if key := normalizeName(credit.Name); credit.Name != "" && libByNorm[key] != nil {
-				// Credited form differs from the artist's name ("Star Anna
-				// and the Laughing Dogs" crediting "Star Anna").
-				record(credit.Artist.ID, credit.Artist.Name, credit.Artist.SortName, key, rg)
-			}
-		}
-		// Joint credits ("Simon & Garfunkel" as two artists): match the full
-		// credited phrase too, attributed to the first credited artist.
-		if len(rg.ArtistCredit) > 1 {
-			var full strings.Builder
-			for _, credit := range rg.ArtistCredit {
-				full.WriteString(credit.Name)
-				full.WriteString(credit.JoinPhrase)
-			}
-			first := rg.ArtistCredit[0].Artist
-			if key := normalizeName(full.String()); libByNorm[key] != nil && first.ID != variousArtistsMBID {
-				record(first.ID, full.String(), full.String(), key, rg)
-			}
-		}
-	}
-	if err := sc.Err(); err != nil {
 		log.Fatalf("reading dump: %v", err)
 	}
-	if err := closeDump(); err != nil {
-		log.Fatalf("dump: %v", err)
+	seen := map[string]bool{}
+	for _, c := range candidates {
+		seen[c.LibKey] = true
 	}
-	log.Printf("dump scanned: %d release groups — %d/%d library artists seen (%d candidates)",
-		lines, len(matchedNames), len(libByNorm), len(candidates))
+	log.Printf("dump scanned — %d/%d library artists seen (%d candidates)", len(seen), len(libByNorm), len(candidates))
 
 	// Optional second pass over the release dump: collect the titles of every
 	// release inside a candidate group. Release titles carry reissue names
 	// ("Aaliyah: Edition 2004") that group titles don't, so they make both
 	// confidence scoring and owned-marking far more reliable.
-	type aliasRec struct{ norm, light, relMBID string }
-	rgAliases := map[string][]aliasRec{}
+	rgAliases := map[string][]dump.Alias{}
 	if *releaseDump != "" {
 		wanted := make(map[string]bool)
 		for _, c := range candidates {
-			for _, g := range c.groups {
+			for _, g := range c.Groups {
 				wanted[g.ID] = true
 			}
 		}
@@ -228,10 +148,10 @@ func runImport(args []string) {
 				continue
 			}
 			matched++
-			rgAliases[r.ReleaseGroup.ID] = append(rgAliases[r.ReleaseGroup.ID], aliasRec{
-				norm:    model.NormalizeTitle(r.Title),
-				light:   model.NormalizeTitleLight(r.Title),
-				relMBID: r.ID,
+			rgAliases[r.ReleaseGroup.ID] = append(rgAliases[r.ReleaseGroup.ID], dump.Alias{
+				Norm:        model.NormalizeTitle(r.Title),
+				Light:       model.NormalizeTitleLight(r.Title),
+				ReleaseMBID: r.ID,
 			})
 		}
 		if err := rsc.Err(); err != nil {
@@ -246,94 +166,45 @@ func runImport(args []string) {
 		log.Printf("release dump scanned: %d releases, %d alias titles across %d groups", rlines, matched, len(rgAliases))
 	}
 
-	// matchGroups finds the candidate's release groups matching one library
-	// album: by release-group MBID tag, by normalized group title, or by any
-	// release-title alias.
-	matchGroups := func(c *candidate, alb mpdclient.Album) []*model.ReleaseGroup {
-		norm := model.NormalizeTitle(alb.Title)
-		light := model.NormalizeTitleLight(alb.Title)
-		var out []*model.ReleaseGroup
-		for i := range c.groups {
-			g := &c.groups[i]
-			ok := (alb.MBID != "" && g.MBID == alb.MBID) || g.NormTitle == norm
-			if !ok {
-				for _, a := range rgAliases[g.ID] {
-					if a.norm == norm || a.light == light ||
-						(alb.MBID != "" && a.relMBID == alb.MBID) {
-						ok = true
-						break
-					}
-				}
-			}
-			if ok {
-				out = append(out, g)
-			}
-		}
-		return out
-	}
-
-	// Pick the best candidate per library artist: most owned-album matches,
-	// then largest discography. Only confident matches are imported — the
-	// name matched AND at least one library album is in the candidate's
-	// discography. Anything weaker is left for the live sync, which has
-	// proper search scoring.
-	type scored struct {
-		c     *candidate
-		score int
-	}
-	best := map[string]scored{}
-	for _, c := range candidates {
-		lib := libByNorm[c.libKey]
-		if lib == nil {
-			continue
-		}
-		n := 0
-		for _, alb := range lib.albums {
-			if len(matchGroups(c, alb)) > 0 {
-				n++
-			}
-		}
-		cur, ok := best[c.libKey]
-		if !ok || n > cur.score || (n == cur.score && len(c.groups) > len(cur.c.groups)) {
-			best[c.libKey] = scored{c, n}
-		}
-	}
+	// Only confident matches are imported — the name matched AND at least one
+	// library album is in the candidate's discography. Anything weaker is left
+	// for the live sync, which has proper search scoring.
+	best := dump.Best(candidates, libAlbums, rgAliases)
 
 	imported, ownedTotal := 0, 0
 	var unmatched []string
 	for key, lib := range libByNorm {
-		s := best[key]
-		if s.c == nil || s.score == 0 {
+		c := best[key]
+		if c == nil {
 			unmatched = append(unmatched, lib.name)
 			continue
 		}
-		c := s.c
-		if err := st.UpsertArtist(c.artist); err != nil {
-			log.Fatalf("save artist %s: %v", c.artist.Name, err)
+		if err := st.UpsertArtist(c.Artist); err != nil {
+			log.Fatalf("save artist %s: %v", c.Artist.Name, err)
 		}
-		if err := st.SaveReleaseGroups(c.artist.ID, c.groups); err != nil {
-			log.Fatalf("save release groups for %s: %v", c.artist.Name, err)
+		if err := st.SaveReleaseGroups(c.Artist.ID, c.Groups); err != nil {
+			log.Fatalf("save release groups for %s: %v", c.Artist.Name, err)
 		}
-		if err := st.SaveArtistAliases(c.artist.ID, c.artist.Name, []string{lib.name}); err != nil {
-			log.Fatalf("save artist aliases for %s: %v", c.artist.Name, err)
+		if err := st.SaveArtistAliases(c.Artist.ID, c.Artist.Name, []string{lib.name}); err != nil {
+			log.Fatalf("save artist aliases for %s: %v", c.Artist.Name, err)
 		}
 		if len(rgAliases) > 0 {
 			var rows []store.Alias
-			for _, g := range c.groups {
+			for _, g := range c.Groups {
 				for _, a := range rgAliases[g.ID] {
-					rows = append(rows, store.Alias{RGID: g.ID, NormTitle: a.norm, ReleaseMBID: a.relMBID})
-					if a.light != a.norm {
-						rows = append(rows, store.Alias{RGID: g.ID, NormTitle: a.light, ReleaseMBID: a.relMBID})
+					rows = append(rows, store.Alias{RGID: g.ID, NormTitle: a.Norm, ReleaseMBID: a.ReleaseMBID})
+					if a.Light != a.Norm {
+						rows = append(rows, store.Alias{RGID: g.ID, NormTitle: a.Light, ReleaseMBID: a.ReleaseMBID})
 					}
 				}
 			}
-			if err := st.SaveAliases(c.artist.ID, rows); err != nil {
-				log.Fatalf("save aliases for %s: %v", c.artist.Name, err)
+			if err := st.SaveAliases(c.Artist.ID, rows); err != nil {
+				log.Fatalf("save aliases for %s: %v", c.Artist.Name, err)
 			}
 		}
 		owned := 0
 		for _, alb := range lib.albums {
-			matched := matchGroups(c, alb)
+			matched := dump.MatchGroups(c, alb, rgAliases)
 			if len(matched) == 0 {
 				continue
 			}
@@ -344,7 +215,7 @@ func runImport(args []string) {
 		}
 		ownedTotal += owned
 		imported++
-		log.Printf("imported %s: %d release groups, %d/%d albums owned", c.artist.Name, len(c.groups), owned, len(lib.albums))
+		log.Printf("imported %s: %d release groups, %d/%d albums owned", c.Artist.Name, len(c.Groups), owned, len(lib.albums))
 	}
 
 	fmt.Printf("\nimported %d/%d artists (confident matches only), marked %d albums owned\n", imported, len(libByNorm), ownedTotal)
@@ -361,8 +232,8 @@ func runImport(args []string) {
 // readLibrary reads album artists from whichever player is configured. The
 // MPD shape (Title + MBID per album) is the common denominator; Subsonic
 // albums carry a release MBID instead of a release-group MBID, which the
-// alias matcher understands.
-func readLibrary(mpdAddr, subsonicURL string) ([]mpdclient.Artist, error) {
+// alias matcher understands; so do melody's.
+func readLibrary(mpdAddr, subsonicURL, melodyAddr string) ([]mpdclient.Artist, error) {
 	if mpdAddr != "" {
 		host, password := mpdAddr, os.Getenv("MPD_PASSWORD")
 		if pw, h, ok := strings.Cut(host, "@"); ok {
@@ -378,6 +249,14 @@ func readLibrary(mpdAddr, subsonicURL string) ([]mpdclient.Artist, error) {
 			return nil, fmt.Errorf("mpd: %w", err)
 		}
 		return lib, nil
+	}
+	if subsonicURL == "" {
+		client, err := melodyClient(melodyAddr)
+		if err != nil {
+			return nil, err
+		}
+		log.Print("reading library from melody…")
+		return client.Library(context.Background())
 	}
 	user, pass := os.Getenv("SUBSONIC_USER"), os.Getenv("SUBSONIC_PASSWORD")
 	if user == "" || pass == "" {

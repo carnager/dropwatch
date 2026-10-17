@@ -155,6 +155,12 @@ func (s *Store) ApplyDump(ctx context.Context, tracked map[string]bool, groups m
 				if _, err := notify.ExecContext(ctx, artistID, g.ID, g.Title, g.FirstReleaseDate, kind, stamp, stamp); err != nil {
 					return err
 				}
+			} else if !baseline && !date.After(now) {
+				// An artist's first snapshot still announces what came out in the
+				// recent window; otherwise the list stays empty until the next dump.
+				if _, err := notify.ExecContext(ctx, artistID, g.ID, g.Title, g.FirstReleaseDate, "new", date.UTC().Format(time.RFC3339), stamp); err != nil {
+					return err
+				}
 			}
 			if precise && date.After(now) {
 				if _, err := notify.ExecContext(ctx, artistID, g.ID, g.Title, g.FirstReleaseDate, "released", date.UTC().Format(time.RFC3339), stamp); err != nil {
@@ -165,6 +171,58 @@ func (s *Store) ApplyDump(ctx context.Context, tracked map[string]bool, groups m
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO dump_baselines (artist_id, created_at) VALUES (?, ?)`, artistID, stamp); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+// BackfillBaselineReleases announces recent releases for artists whose
+// baseline was taken before first snapshots did so. It runs once per database.
+func (s *Store) BackfillBaselineReleases(now time.Time, loc *time.Location) error {
+	var done bool
+	if err := s.LoadDumpSetting("baseline_backfill", &done); err != nil || done {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT g.artist_id, g.id, g.title, g.first_release_date
+		FROM release_groups g JOIN dump_baselines b ON b.artist_id = g.artist_id
+		WHERE g.secondary_types = '' AND g.primary_type IN ('Album', 'EP', 'Single')`)
+	if err != nil {
+		return err
+	}
+	type pending struct{ artistID, id, title, date, at string }
+	var due []pending
+	for rows.Next() {
+		var p pending
+		if err := rows.Scan(&p.artistID, &p.id, &p.title, &p.date); err != nil {
+			rows.Close()
+			return err
+		}
+		date, dateEnd, _ := releaseDateRange(p.date, loc)
+		if date.IsZero() || dateEnd.Before(now.AddDate(0, 0, -30)) || date.After(now) {
+			continue
+		}
+		p.at = date.UTC().Format(time.RFC3339)
+		due = append(due, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, p := range due {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO release_notifications
+			(artist_id, rg_id, title, release_date, kind, available_at) VALUES (?, ?, ?, ?, 'new', ?)`,
+			p.artistID, p.id, p.title, p.date, p.at); err != nil {
+			return err
+		}
+	}
+	raw, _ := json.Marshal(true)
+	if _, err := tx.Exec(`INSERT INTO dump_settings (key, value) VALUES ('baseline_backfill', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(raw)); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -190,16 +248,39 @@ func releaseDateRange(value string, loc *time.Location) (time.Time, time.Time, b
 	return time.Time{}, time.Time{}, false
 }
 
-func (s *Store) Notifications(now time.Time) ([]model.ReleaseNotification, int, error) {
+// notDismissed hides releases the user already owns or chose to ignore,
+// checked at read time so a later library sync clears them too.
+const notDismissed = `NOT EXISTS (SELECT 1 FROM release_groups g WHERE g.id = n.rg_id AND g.state IN ('owned', 'ignored'))`
+
+// notificationType is the release group's primary type; every copy of a
+// shared group carries the same one.
+const notificationType = `COALESCE((SELECT g.primary_type FROM release_groups g WHERE g.id = n.rg_id LIMIT 1), '')`
+
+// typeFilter restricts notifications to the given primary types; none means all.
+func typeFilter(types []string) (string, []any) {
+	if len(types) == 0 {
+		return "", nil
+	}
+	args := make([]any, len(types))
+	for i, t := range types {
+		args[i] = t
+	}
+	return " AND " + notificationType + " IN (?" + strings.Repeat(", ?", len(types)-1) + ")", args
+}
+
+// Notifications returns the due notifications of the given primary types (all
+// when empty), newest first, with the unread count over the same selection.
+func (s *Store) Notifications(now time.Time, types []string) ([]model.ReleaseNotification, int, error) {
 	stamp := now.UTC().Format(time.RFC3339)
+	filter, filterArgs := typeFilter(types)
 	var unread int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM release_notifications n JOIN artists a ON a.id = n.artist_id
-		WHERE n.available_at <= ? AND n.unread = 1`, stamp).Scan(&unread); err != nil {
+		WHERE n.available_at <= ? AND n.unread = 1 AND `+notDismissed+filter, append([]any{stamp}, filterArgs...)...).Scan(&unread); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.db.Query(`SELECT n.id, n.artist_id, a.name, n.rg_id, n.title, n.release_date, n.kind, n.unread
+	rows, err := s.db.Query(`SELECT n.id, n.artist_id, a.name, n.rg_id, n.title, n.release_date, n.kind, `+notificationType+`, n.unread
 		FROM release_notifications n JOIN artists a ON a.id = n.artist_id
-		WHERE n.available_at <= ? ORDER BY n.available_at DESC, n.id DESC LIMIT 200`, stamp)
+		WHERE n.available_at <= ? AND `+notDismissed+filter+` ORDER BY n.available_at DESC, n.id DESC LIMIT 200`, append([]any{stamp}, filterArgs...)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -207,7 +288,7 @@ func (s *Store) Notifications(now time.Time) ([]model.ReleaseNotification, int, 
 	out := []model.ReleaseNotification{}
 	for rows.Next() {
 		var n model.ReleaseNotification
-		if err := rows.Scan(&n.ID, &n.ArtistID, &n.ArtistName, &n.ReleaseID, &n.Title, &n.ReleaseDate, &n.Kind, &n.Unread); err != nil {
+		if err := rows.Scan(&n.ID, &n.ArtistID, &n.ArtistName, &n.ReleaseID, &n.Title, &n.ReleaseDate, &n.Kind, &n.PrimaryType, &n.Unread); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, n)
@@ -215,7 +296,11 @@ func (s *Store) Notifications(now time.Time) ([]model.ReleaseNotification, int, 
 	return out, unread, rows.Err()
 }
 
-func (s *Store) ReadNotifications(now time.Time) error {
-	_, err := s.db.Exec(`UPDATE release_notifications SET unread = 0 WHERE available_at <= ?`, now.UTC().Format(time.RFC3339))
+// ReadNotifications marks the due notifications of the given primary types
+// (all when empty) read.
+func (s *Store) ReadNotifications(now time.Time, types []string) error {
+	filter, filterArgs := typeFilter(types)
+	_, err := s.db.Exec(`UPDATE release_notifications AS n SET unread = 0 WHERE n.available_at <= ?`+filter,
+		append([]any{now.UTC().Format(time.RFC3339)}, filterArgs...)...)
 	return err
 }

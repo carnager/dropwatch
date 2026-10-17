@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"dropwatch/internal/melody"
 	"dropwatch/internal/model"
 	"dropwatch/internal/sources"
 	"dropwatch/internal/store"
@@ -32,6 +33,7 @@ type Server struct {
 	mpdPassword string
 
 	subsonic *subsonic.Client // nil when not configured
+	melody   *melody.Client   // nil when not configured
 	watcher  *watch.Watcher
 
 	jobMu sync.Mutex
@@ -44,6 +46,9 @@ func New(st *store.Store, mb *sources.MusicBrainz, dc *sources.Discogs) *Server 
 
 // SetSubsonic configures the Subsonic server used by /api/sync/subsonic.
 func (s *Server) SetSubsonic(c *subsonic.Client) { s.subsonic = c }
+
+// SetMelody configures the melody engine used by /api/sync/melody.
+func (s *Server) SetMelody(c *melody.Client) { s.melody = c }
 
 func (s *Server) SetWatcher(w *watch.Watcher) { s.watcher = w }
 
@@ -74,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sync", s.handleSync)
 	mux.HandleFunc("POST /api/sync/mpd", s.handleSyncMPD)
 	mux.HandleFunc("POST /api/sync/subsonic", s.handleSyncSubsonic)
+	mux.HandleFunc("POST /api/sync/melody", s.handleSyncMelody)
 	mux.HandleFunc("GET /api/sync/status", s.handleSyncStatus)
 	mux.HandleFunc("GET /api/dumps", s.handleDumpStatus)
 	mux.HandleFunc("PUT /api/dumps/schedule", s.handleDumpSchedule)
@@ -84,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]bool{
 			"mpd":      s.mpdAddr != "",
 			"subsonic": s.subsonic != nil,
+			"melody":   s.melody != nil,
 			"discogs":  s.discogs != nil,
 		})
 	})

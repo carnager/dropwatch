@@ -211,6 +211,11 @@
   <div id="notificationsView" class="hidden">
     <div class="sectionhead"><h2>New releases</h2><button type="button" id="readNotifications">mark all read</button></div>
     <p class="hint">New albums, EPs and singles from your tracked artists. Upcoming releases get a reminder on their release date when the exact day is known.</p>
+    <div class="filters">
+      <button type="button" class="pill notif-type on" data-t="Album">albums</button>
+      <button type="button" class="pill notif-type on" data-t="EP">eps</button>
+      <button type="button" class="pill notif-type on" data-t="Single">singles</button>
+    </div>
     <div id="notificationsList"></div>
     <p class="hint">Showing the latest 200 notifications. Configure automatic dump downloads in <a href="#settings">settings</a>.</p>
   </div>
@@ -246,7 +251,7 @@
     </form>
     <p id="dumpMessage" class="note" role="status"></p>
     <div id="dumpStatus" class="hint" aria-live="polite"></div>
-    <p class="hint">The first scan for each artist establishes a baseline silently. Later scans notify about upcoming releases and releases from the last 30 days; older additions and undated entries still update the discography. Each new dump is about 1 GB. Downloads are skipped when that version has already been processed, unless newly tracked artists need a baseline.</p>
+    <p class="hint">The first scan for each artist announces its releases from the last 30 days. Later scans notify about newly listed upcoming releases and releases from the last 30 days; older additions and undated entries still update the discography. Each new dump is about 1 GB. Downloads are skipped when that version has already been processed, unless newly tracked artists need a baseline.</p>
     <p class="hint">Dropwatch must be running to download. If it misses a scheduled check while stopped, it checks once on the next start. Failed downloads retry at the next scheduled time, or with “check now”. Turning off automatic checks lets an active check finish.</p>
   </div>
 
@@ -706,7 +711,7 @@ $("untrack").onclick = async () => {
 /* ---------- sync controls ---------- */
 
 api("/api/config").then(c => {
-  const providers = [["mpd", c.mpd], ["subsonic", c.subsonic]].filter(p => p[1]).map(p => p[0]);
+  const providers = [["mpd", c.mpd], ["subsonic", c.subsonic], ["melody", c.melody]].filter(p => p[1]).map(p => p[0]);
   if (!providers.length) return;
   syncProvider = providers[0];
   $("syncThis").textContent = "sync from " + syncProvider;
@@ -883,15 +888,42 @@ $("checkDump").onclick = async () => {
   }
 };
 
+// Which release types the list (and its unread count) covers; remembered per
+// browser. At least one stays selected.
+const notifTypes = { Album: true, EP: true, Single: true };
+try {
+  const saved = JSON.parse(localStorage.getItem("dropwatch.notifTypes") || "null");
+  if (saved && Object.keys(notifTypes).some(t => saved[t])) {
+    for (const t in notifTypes) notifTypes[t] = !!saved[t];
+  }
+} catch {}
+function notifQuery() {
+  return "?types=" + Object.keys(notifTypes).filter(t => notifTypes[t]).join(",");
+}
+document.querySelectorAll(".notif-type").forEach(p => {
+  p.classList.toggle("on", notifTypes[p.dataset.t]);
+  p.onclick = () => {
+    const t = p.dataset.t;
+    if (notifTypes[t] && Object.values(notifTypes).filter(Boolean).length === 1) return;
+    notifTypes[t] = !notifTypes[t];
+    p.classList.toggle("on", notifTypes[t]);
+    try { localStorage.setItem("dropwatch.notifTypes", JSON.stringify(notifTypes)); } catch {}
+    loadNotifications();
+  };
+});
+
 async function loadNotifications() {
   try {
-    const data = await api("/api/notifications");
+    const data = await api("/api/notifications" + notifQuery());
     $("notificationsTab").textContent = data.unread ? `notifications (${data.unread})` : "notifications";
     $("readNotifications").disabled = data.unread === 0;
     const list = $("notificationsList");
     list.replaceChildren();
     if (!data.notifications.length) {
-      list.appendChild(el("p", "empty", "No new releases yet. Enable scheduled checks in settings, or run your first check now."));
+      const filtered = Object.values(notifTypes).some(v => !v);
+      list.appendChild(el("p", "empty", filtered
+        ? "No new releases of the selected types."
+        : "No new releases yet. Enable scheduled checks in settings, or run your first check now."));
     }
     const labels = { new: "New release", upcoming: "Upcoming", released: "Release day" };
     for (const n of data.notifications) {
@@ -899,7 +931,8 @@ async function loadNotifications() {
       const title = el("button", "", `${n.artistName} — ${n.title}`);
       title.type = "button";
       title.onclick = () => openArtist({ id: n.artistId, name: n.artistName });
-      row.append(title, el("p", "detail", `${labels[n.kind] || n.kind} · ${n.releaseDate}`));
+      const type = n.primaryType ? ` · ${n.primaryType.toLowerCase()}` : "";
+      row.append(title, el("p", "detail", `${labels[n.kind] || n.kind}${type} · ${n.releaseDate}`));
       list.appendChild(row);
     }
   } catch (err) {
@@ -909,7 +942,7 @@ async function loadNotifications() {
 
 $("readNotifications").onclick = async () => {
   try {
-    await api("/api/notifications/read", { method: "POST" });
+    await api("/api/notifications/read" + notifQuery(), { method: "POST" });
     await loadNotifications();
   } catch (err) {
     $("notificationsList").textContent = err.message;

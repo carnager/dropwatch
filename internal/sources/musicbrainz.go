@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -61,12 +62,52 @@ func (m *MusicBrainz) get(ctx context.Context, path string, params url.Values, o
 			continue
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("musicbrainz: %s: %w", path, ErrNotFound)
+		}
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("musicbrainz: %s returned %s", path, resp.Status)
 		}
 		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return lastErr
+}
+
+// ErrNotFound reports an MBID MusicBrainz doesn't know (of that entity type).
+var ErrNotFound = errors.New("not found")
+
+// CreditedArtist returns the first credited artist of a release, or of a
+// release group when mbid is one of those instead (MPD exposes release-group
+// IDs, Subsonic and melody release IDs). Credits keep the name an album came
+// out under, so "Kari" on "Pilot" resolves to Kari Rueslåtten. Various
+// Artists and [unknown] count as no artist.
+func (m *MusicBrainz) CreditedArtist(ctx context.Context, mbid string) (model.Artist, bool, error) {
+	var res struct {
+		ArtistCredit []struct {
+			Artist struct {
+				ID             string `json:"id"`
+				Name           string `json:"name"`
+				SortName       string `json:"sort-name"`
+				Disambiguation string `json:"disambiguation"`
+			} `json:"artist"`
+		} `json:"artist-credit"`
+	}
+	params := url.Values{"inc": {"artist-credits"}}
+	err := m.get(ctx, "release/"+mbid, params, &res)
+	if errors.Is(err, ErrNotFound) {
+		err = m.get(ctx, "release-group/"+mbid, url.Values{"inc": {"artist-credits"}}, &res)
+	}
+	if errors.Is(err, ErrNotFound) {
+		return model.Artist{}, false, nil
+	}
+	if err != nil || len(res.ArtistCredit) == 0 {
+		return model.Artist{}, false, err
+	}
+	a := res.ArtistCredit[0].Artist
+	if a.ID == model.VariousArtistsMBID || a.ID == model.UnknownArtistMBID {
+		return model.Artist{}, false, nil
+	}
+	return model.Artist{ID: a.ID, Name: a.Name, SortName: a.SortName, Disambiguation: a.Disambiguation}, true, nil
 }
 
 // SearchArtists finds artists by name. It first searches for the exact
@@ -91,6 +132,10 @@ func (m *MusicBrainz) searchArtists(ctx context.Context, query string) ([]model.
 			Disambiguation string `json:"disambiguation"`
 			Country        string `json:"country"`
 			Score          int    `json:"score"`
+			Aliases        []struct {
+				Name     string `json:"name"`
+				SortName string `json:"sort-name"`
+			} `json:"aliases"`
 		} `json:"artists"`
 	}
 	params := url.Values{"query": {query}, "limit": {"10"}}
@@ -99,13 +144,17 @@ func (m *MusicBrainz) searchArtists(ctx context.Context, query string) ([]model.
 	}
 	artists := make([]model.Artist, 0, len(res.Artists))
 	for _, a := range res.Artists {
-		artists = append(artists, model.Artist{
+		artist := model.Artist{
 			ID:             a.ID,
 			Name:           a.Name,
 			SortName:       a.SortName,
 			Disambiguation: a.Disambiguation,
 			Country:        a.Country,
-		})
+		}
+		for _, al := range a.Aliases {
+			artist.Aliases = append(artist.Aliases, al.Name, al.SortName)
+		}
+		artists = append(artists, artist)
 	}
 	return artists, nil
 }
@@ -154,7 +203,9 @@ func (m *MusicBrainz) ReleaseGroups(ctx context.Context, artistMBID string) ([]m
 					creditSet[c.Name] = true
 				}
 			}
-			if s := full.String(); s != "" {
+			// A joint credit names the release after its first artist; as an
+			// alias of a guest it would pull the lead's albums to the guest.
+			if s := full.String(); s != "" && rg.ArtistCredit[0].Artist.ID == artistMBID {
 				creditSet[s] = true
 			}
 			pt := rg.PrimaryType

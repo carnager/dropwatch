@@ -31,7 +31,11 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(watchSchema); err != nil {
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	st := &Store{db: db}
+	if err := st.dropGuestAliases(); err != nil {
+		return nil, err
+	}
+	return st, nil
 }
 
 // migrate upgrades old databases where release_groups was keyed by id alone.
@@ -208,6 +212,62 @@ func (s *Store) SaveArtistAliases(artistID, artistName string, names []string) e
 		}
 	}
 	return tx.Commit()
+}
+
+// dropGuestAliases removes, once, the joint-credit aliases earlier versions
+// stored for every credited artist: "Dear Reader & Deutsches Filmorchester
+// Babelsberg" belongs to Dear Reader, not to the orchestra.
+func (s *Store) dropGuestAliases() error {
+	var done bool
+	if err := s.LoadDumpSetting("guest_aliases_dropped", &done); err != nil || done {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT al.artist_id, al.norm_name, a.name FROM artist_aliases al JOIN artists a ON a.id = al.artist_id`)
+	if err != nil {
+		return err
+	}
+	type alias struct{ artistID, norm string }
+	var guests []alias
+	for rows.Next() {
+		var a alias
+		var name string
+		if err := rows.Scan(&a.artistID, &a.norm, &name); err != nil {
+			rows.Close()
+			return err
+		}
+		if model.IsGuestCredit(a.norm, model.NormalizeArtistName(name)) {
+			guests = append(guests, a)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, a := range guests {
+		if _, err := tx.Exec(`DELETE FROM artist_aliases WHERE artist_id = ? AND norm_name = ?`, a.artistID, a.norm); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO dump_settings (key, value) VALUES ('guest_aliases_dropped', 'true')
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// AddArtistAlias records one more name for the artist, keeping the rest.
+func (s *Store) AddArtistAlias(artistID, name string) error {
+	norm := model.NormalizeArtistName(name)
+	if norm == "" {
+		return nil
+	}
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO artist_aliases (artist_id, norm_name) VALUES (?, ?)`, artistID, norm)
+	return err
 }
 
 func (s *Store) Artist(id string) (model.Artist, bool, error) {

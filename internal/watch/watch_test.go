@@ -105,7 +105,7 @@ func TestDownloadCheckAndDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ns, unread, err := st.Notifications(time.Now())
+	ns, unread, err := st.Notifications(time.Now(), nil)
 	if err != nil || len(ns) != 1 || unread != 1 || ns[0].Title != "New" {
 		t.Fatalf("discovery: %v %d %v", ns, unread, err)
 	}
@@ -126,8 +126,8 @@ func TestDownloadCheckAndDiscovery(t *testing.T) {
 		t.Fatalf("failed scan changed stored data: %v %v", groups, err)
 	}
 	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("temporary downloads not removed: %v %v", entries, err)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "release-group.tar.xz" || w.DumpPath() == "" {
+		t.Fatalf("expected only the last verified dump to be kept: %v %v", entries, err)
 	}
 }
 

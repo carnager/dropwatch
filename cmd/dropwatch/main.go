@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"dropwatch/internal/melody"
 	"dropwatch/internal/server"
 	"dropwatch/internal/sources"
 	"dropwatch/internal/store"
@@ -39,6 +40,7 @@ func run() error {
 	mpdAddr := flag.String("mpd", os.Getenv("MPD_HOST"), "MPD server address (host[:port]) for /api/sync/mpd; also read from MPD_HOST")
 	discogsToken := flag.String("discogs-token", os.Getenv("DISCOGS_TOKEN"), "Discogs personal access token; also read from DISCOGS_TOKEN")
 	subsonicURL := flag.String("subsonic", os.Getenv("SUBSONIC_URL"), "Subsonic-compatible server URL for /api/sync/subsonic; also read from SUBSONIC_URL (credentials via SUBSONIC_USER/SUBSONIC_PASSWORD)")
+	melodyAddr := flag.String("melody", os.Getenv("MELODY_SERVER"), "melody engine address (host[:port], default port 6603) for /api/sync/melody; also read from MELODY_SERVER (password via MELODY_PASSWORD or MELODY_PASSWORD_FILE)")
 	flag.Parse()
 
 	const userAgent = "dropwatch/0.1 (https://github.com/carnager/dropwatch)"
@@ -77,6 +79,14 @@ func run() error {
 		srv.SetSubsonic(subsonic.New(*subsonicURL, user, pass))
 		log.Printf("subsonic sync enabled against %s", *subsonicURL)
 	}
+	if *melodyAddr != "" {
+		client, err := melodyClient(*melodyAddr)
+		if err != nil {
+			return err
+		}
+		srv.SetMelody(client)
+		log.Printf("melody sync enabled against %s", *melodyAddr)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *dumpDir == "" {
@@ -105,4 +115,22 @@ func run() error {
 		}
 	}
 	return nil
+}
+
+// melodyClient reads the engine password from MELODY_PASSWORD or the file
+// named by MELODY_PASSWORD_FILE, the variables melody's own tools use.
+// A unix socket needs none.
+func melodyClient(addr string) (*melody.Client, error) {
+	password := os.Getenv("MELODY_PASSWORD")
+	if path := os.Getenv("MELODY_PASSWORD_FILE"); password == "" && path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("melody password file: %w", err)
+		}
+		password = strings.TrimSpace(string(data))
+	}
+	if password == "" && !strings.HasPrefix(addr, "/") {
+		return nil, fmt.Errorf("-melody over TCP requires MELODY_PASSWORD or MELODY_PASSWORD_FILE")
+	}
+	return melody.New(addr, password), nil
 }

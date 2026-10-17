@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
+	"dropwatch/internal/dump"
 	"dropwatch/internal/model"
 	"dropwatch/internal/mpdclient"
 )
@@ -35,6 +38,8 @@ type syncArtist struct {
 	Name   string      `json:"name"`
 	MBID   string      `json:"mbid,omitempty"` // skips name resolution when given
 	Albums []syncAlbum `json:"albums"`
+
+	resolved bool // resolved earlier in this sync (dump, lead artist): no skip, no live refetch
 }
 
 type syncResult struct {
@@ -77,12 +82,12 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 
 // syncOne resolves one library artist, marks its albums owned, and reports
 // what's missing. With skipExisting, artists already tracked in the database
-// are skipped entirely — no source requests at all — which makes re-syncs of
-// large libraries fast.
+// cause no source requests at all — their albums are matched against the
+// stored discography only — which makes re-syncs of large libraries fast.
 func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) syncResult {
 	res := syncResult{Query: in.Name, Missing: []model.ReleaseGroup{}}
 
-	if skipExisting {
+	if skipExisting && !in.resolved {
 		var existing model.Artist
 		var found bool
 		var err error
@@ -94,6 +99,9 @@ func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) 
 		if err == nil && found {
 			res.Artist = &existing
 			res.Skipped = true
+			if err := s.matchAlbums(existing.ID, in.Albums, &res); err != nil {
+				res.Error = err.Error()
+			}
 			return res
 		}
 	}
@@ -108,16 +116,52 @@ func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) 
 		}
 	}
 	if mbid == "" {
-		found, err := s.mb.SearchArtists(ctx, in.Name)
-		if err != nil {
-			res.Error = "artist search failed: " + err.Error()
+		mbid = s.leadArtist(in)
+	}
+	if mbid == "" {
+		// A tagged album names its artist exactly: one lookup, no guessing.
+		// Several are tried in case a tag is stale or points at a compilation.
+		tried := 0
+		for _, alb := range in.Albums {
+			if alb.MBID == "" || tried == 3 {
+				continue
+			}
+			tried++
+			a, ok, err := s.mb.CreditedArtist(ctx, alb.MBID)
+			if err != nil {
+				log.Printf("sync: %s: credit lookup for %q: %v", in.Name, alb.Title, err)
+				continue
+			}
+			if ok {
+				mbid = a.ID
+				break
+			}
+		}
+	}
+	if mbid == "" {
+		// Only a hit actually named like the library artist counts: the top
+		// fuzzy result for an artist MusicBrainz doesn't know is somebody else.
+		// A joint credit no artist goes by falls back to its first artist.
+		for _, name := range []string{in.Name, model.LeadArtist(in.Name)} {
+			if name == "" || mbid != "" {
+				continue
+			}
+			found, err := s.mb.SearchArtists(ctx, name)
+			if err != nil {
+				res.Error = "artist search failed: " + err.Error()
+				return res
+			}
+			for _, a := range found {
+				if a.ID != model.VariousArtistsMBID && a.ID != model.UnknownArtistMBID && a.NamedAs(name) {
+					mbid = a.ID
+					break
+				}
+			}
+		}
+		if mbid == "" {
+			res.Error = "no MusicBrainz artist by that name"
 			return res
 		}
-		if len(found) == 0 {
-			res.Error = "no MusicBrainz match for artist name"
-			return res
-		}
-		mbid = found[0].ID
 	}
 
 	fetchedNow := false
@@ -143,7 +187,7 @@ func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) 
 	// Self-heal: cached data can predate features (release aliases) or be
 	// stale. If albums failed to match against the cache, refetch once and
 	// retry before reporting them unmatched.
-	if len(res.Unmatched) > 0 && !fetchedNow {
+	if len(res.Unmatched) > 0 && !fetchedNow && !in.resolved {
 		log.Printf("sync: %s — %d unmatched against cache, refetching sources", in.Name, len(res.Unmatched))
 		if _, err := s.fetchAndStore(ctx, mbid); err != nil {
 			log.Printf("sync: refetch for %s failed: %v", in.Name, err)
@@ -155,6 +199,41 @@ func (s *Server) syncOne(ctx context.Context, in syncArtist, skipExisting bool) 
 		}
 	}
 	return res
+}
+
+// leadArtist resolves a joint credit ("Dear Reader & Deutsches Filmorchester
+// Babelsberg") to its tracked first artist, but only when one of the library's
+// albums is in that artist's discography: "Nick Cave & The Bad Seeds" must not
+// collapse into Nick Cave's solo work.
+func (s *Server) leadArtist(in syncArtist) string {
+	lead := model.LeadArtist(in.Name)
+	if lead == "" {
+		return ""
+	}
+	a, found, err := s.store.ArtistByName(lead)
+	if err != nil || !found {
+		return ""
+	}
+	groups, err := s.store.ReleaseGroups(a.ID)
+	if err != nil {
+		return ""
+	}
+	c := &dump.Candidate{Artist: a, Groups: groups}
+	aliases := map[string][]dump.Alias{}
+	if stored, err := s.store.Aliases(a.ID); err == nil {
+		for _, al := range stored {
+			aliases[al.RGID] = append(aliases[al.RGID], dump.Alias{Norm: al.NormTitle, Light: al.NormTitle, ReleaseMBID: al.ReleaseMBID})
+		}
+	}
+	for _, alb := range in.Albums {
+		if len(dump.MatchGroups(c, mpdclient.Album{Title: alb.Title, MBID: alb.MBID}, aliases)) > 0 {
+			if err := s.store.AddArtistAlias(a.ID, in.Name); err != nil {
+				log.Printf("sync: alias for %s: %v", a.Name, err)
+			}
+			return a.ID
+		}
+	}
+	return ""
 }
 
 // matchAlbums marks the library's albums owned against the artist's stored
@@ -332,6 +411,7 @@ func (s *Server) runSyncArtists(job *mpdJob, artists []syncArtist, skipExisting 
 	// giving up on a long request.
 	ctx := context.Background()
 	log.Printf("sync: starting, %d artists", len(artists))
+	s.resolveFromDump(ctx, job, artists)
 	for _, in := range artists {
 		job.mu.Lock()
 		job.Current = in.Name
@@ -370,22 +450,164 @@ func (s *Server) runSyncArtists(job *mpdJob, artists []syncArtist, skipExisting 
 	log.Printf("sync: finished %d artists", len(artists))
 }
 
+// resolveFromDump looks up every library artist the database doesn't know in
+// one scan of the locally kept dump, instead of a few rate-limited web-service
+// requests each. Confident matches (name plus at least one album) are saved
+// and get their MBID filled in; the rest fall through to the live search.
+func (s *Server) resolveFromDump(ctx context.Context, job *mpdJob, artists []syncArtist) {
+	if s.watcher == nil {
+		return
+	}
+	path := s.watcher.DumpPath()
+	names := map[string]bool{}
+	albums := map[string][]mpdclient.Album{}
+	for i, in := range artists {
+		key := model.NormalizeArtistName(in.Name)
+		if in.MBID != "" || key == "" || key == "various artists" || key == "va" {
+			continue
+		}
+		if _, found, err := s.store.ArtistByName(in.Name); err != nil || found {
+			continue
+		}
+		if id := s.leadArtist(in); id != "" {
+			artists[i].MBID, artists[i].resolved = id, true
+			continue
+		}
+		names[key] = true
+		for _, a := range in.Albums {
+			albums[key] = append(albums[key], mpdclient.Album{Title: a.Title, MBID: a.MBID})
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+	if path == "" {
+		log.Printf("sync: %d new artists, no local dump kept yet; using the web service (run a dump check to get one)", len(names))
+		return
+	}
+	// Names this very dump already failed on would only repeat a full scan.
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	var misses struct {
+		Dump  string          `json:"dump"`
+		Names map[string]bool `json:"names"`
+	}
+	stamp := info.ModTime().UTC().Format(time.RFC3339Nano)
+	if err := s.store.LoadDumpSetting("unresolved", &misses); err != nil || misses.Dump != stamp || misses.Names == nil {
+		misses.Dump, misses.Names = stamp, map[string]bool{}
+	}
+	for key := range names {
+		if misses.Names[key] {
+			delete(names, key)
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+	status := fmt.Sprintf("resolving %d new artists from the local dump…", len(names))
+	job.mu.Lock()
+	job.Current = status
+	job.mu.Unlock()
+	log.Printf("sync: %s", status)
+	cands, err := dump.FindCandidates(ctx, path, names, func(records int) {
+		job.mu.Lock()
+		job.Current = fmt.Sprintf("%s %dk release groups scanned", status, records/1000)
+		job.mu.Unlock()
+	})
+	if err != nil {
+		log.Printf("sync: dump lookup failed, using the web service: %v", err)
+		return
+	}
+	best := dump.Best(cands, albums, nil)
+	for key := range names {
+		if best[key] == nil {
+			misses.Names[key] = true
+		}
+	}
+	if err := s.store.SaveDumpSetting("unresolved", misses); err != nil {
+		log.Printf("sync: %v", err)
+	}
+	for i := range artists {
+		in := &artists[i]
+		c := best[model.NormalizeArtistName(in.Name)]
+		if in.MBID != "" || c == nil {
+			continue
+		}
+		// A joint credit ("Beth Gibbons & Rustin Man") can resolve to an artist
+		// already tracked; its stored discography is fuller than the dump's
+		// slice of it, so only the new name is recorded.
+		_, tracked, err := s.store.Artist(c.Artist.ID)
+		if err != nil {
+			log.Printf("sync: %s: %v", c.Artist.Name, err)
+			continue
+		}
+		if !tracked {
+			if err := s.store.UpsertArtist(c.Artist); err != nil {
+				log.Printf("sync: saving %s: %v", c.Artist.Name, err)
+				continue
+			}
+			if err := s.store.SaveReleaseGroups(c.Artist.ID, c.Groups); err != nil {
+				log.Printf("sync: saving releases for %s: %v", c.Artist.Name, err)
+				continue
+			}
+		}
+		if err := s.store.AddArtistAlias(c.Artist.ID, in.Name); err != nil {
+			log.Printf("sync: saving aliases for %s: %v", c.Artist.Name, err)
+		}
+		in.MBID, in.resolved = c.Artist.ID, true
+	}
+	log.Printf("sync: %d/%d new artists resolved from the dump", len(best), len(names))
+}
+
 // handleSyncSubsonic starts a background pull sync from the configured
-// Subsonic-compatible server. Unlike MPD, reading the library is one request
-// per artist, so it happens inside the job; a synchronous ping still surfaces
-// connection/auth errors in the response. Same query params as /api/sync/mpd.
+// Subsonic-compatible server. Same query params as /api/sync/mpd.
 func (s *Server) handleSyncSubsonic(w http.ResponseWriter, r *http.Request) {
 	if s.subsonic == nil {
 		writeErr(w, http.StatusBadRequest, "no Subsonic server configured (start dropwatch with -subsonic + SUBSONIC_USER/SUBSONIC_PASSWORD)")
 		return
 	}
+	s.startPullSync(w, r, "subsonic", s.subsonic.Ping, func(ctx context.Context, progress func(string)) ([]mpdclient.Artist, error) {
+		library, err := s.subsonic.Library(ctx, func(done, total int) {
+			progress(fmt.Sprintf("%d/%d artists", done, total))
+		})
+		out := make([]mpdclient.Artist, 0, len(library))
+		for _, a := range library {
+			artist := mpdclient.Artist{Name: a.Name}
+			for _, alb := range a.Albums {
+				artist.Albums = append(artist.Albums, mpdclient.Album{Title: alb.Title, MBID: alb.MBID})
+			}
+			out = append(out, artist)
+		}
+		return out, err
+	})
+}
+
+// handleSyncMelody starts a background pull sync from the configured melody
+// engine. Same query params as /api/sync/mpd.
+func (s *Server) handleSyncMelody(w http.ResponseWriter, r *http.Request) {
+	if s.melody == nil {
+		writeErr(w, http.StatusBadRequest, "no melody engine configured (start dropwatch with -melody or MELODY_SERVER)")
+		return
+	}
+	s.startPullSync(w, r, "melody", s.melody.Ping, func(ctx context.Context, _ func(string)) ([]mpdclient.Artist, error) {
+		return s.melody.Library(ctx)
+	})
+}
+
+// startPullSync runs a library read and sync as one background job. Reading
+// the library can be slow, so it happens inside the job; a synchronous ping
+// still surfaces connection/auth errors in the response.
+func (s *Server) startPullSync(w http.ResponseWriter, r *http.Request, name string, ping func(context.Context) error,
+	read func(ctx context.Context, progress func(string)) ([]mpdclient.Artist, error)) {
 	s.jobMu.Lock()
 	if s.job != nil && func() bool { s.job.mu.Lock(); defer s.job.mu.Unlock(); return s.job.Running }() {
 		s.jobMu.Unlock()
 		writeErr(w, http.StatusConflict, "a sync is already running")
 		return
 	}
-	if err := s.subsonic.Ping(r.Context()); err != nil {
+	if err := ping(r.Context()); err != nil {
 		s.jobMu.Unlock()
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -393,19 +615,20 @@ func (s *Server) handleSyncSubsonic(w http.ResponseWriter, r *http.Request) {
 	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("artist")))
 	exact := r.URL.Query().Get("exact") == "1"
 	skipExisting := r.URL.Query().Get("skip_existing") == "1"
-	job := &mpdJob{Running: true, Current: "reading library from subsonic…"}
+	reading := "reading library from " + name + "…"
+	job := &mpdJob{Running: true, Current: reading}
 	s.job = job
 	s.jobMu.Unlock()
 
 	go func() {
 		ctx := context.Background()
-		library, err := s.subsonic.Library(ctx, func(done, total int) {
+		library, err := read(ctx, func(detail string) {
 			job.mu.Lock()
-			job.Current = fmt.Sprintf("reading library from subsonic… %d/%d artists", done, total)
+			job.Current = reading + " " + detail
 			job.mu.Unlock()
 		})
 		if err != nil {
-			log.Printf("subsonic sync: reading library failed: %v", err)
+			log.Printf("%s sync: reading library failed: %v", name, err)
 			job.mu.Lock()
 			job.Error = err.Error()
 			job.Running = false
@@ -416,8 +639,8 @@ func (s *Server) handleSyncSubsonic(w http.ResponseWriter, r *http.Request) {
 		var artists []syncArtist
 		for _, a := range library {
 			if filter != "" {
-				name := strings.ToLower(a.Name)
-				if (exact && name != filter) || (!exact && !strings.Contains(name, filter)) {
+				n := strings.ToLower(a.Name)
+				if (exact && n != filter) || (!exact && !strings.Contains(n, filter)) {
 					continue
 				}
 			}
