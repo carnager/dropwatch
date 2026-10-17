@@ -13,11 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"dropwatch/internal/melody"
 	"dropwatch/internal/model"
 	"dropwatch/internal/sources"
 	"dropwatch/internal/store"
-	"dropwatch/internal/subsonic"
 	"dropwatch/internal/watch"
 )
 
@@ -25,38 +23,62 @@ import (
 var webFS embed.FS
 
 type Server struct {
-	store       *store.Store
-	mb          *sources.MusicBrainz
-	discogs     *sources.Discogs // nil when no token configured
-	maxAge      time.Duration    // how long cached release lists stay fresh
-	mpdAddr     string           // empty when no MPD server configured
-	mpdPassword string
+	store     *store.Store
+	mb        *sources.MusicBrainz
+	userAgent string
+	maxAge    time.Duration // how long cached release lists stay fresh
+	watcher   *watch.Watcher
 
-	subsonic *subsonic.Client // nil when not configured
-	melody   *melody.Client   // nil when not configured
-	watcher  *watch.Watcher
+	cfgMu   sync.RWMutex
+	cfg     model.Config
+	discogs *sources.Discogs // nil when no token configured
+
+	loginMu sync.Mutex // serializes password checks to slow down guessing
 
 	jobMu sync.Mutex
 	job   *mpdJob // current or most recent background library sync
 }
 
-func New(st *store.Store, mb *sources.MusicBrainz, dc *sources.Discogs) *Server {
-	return &Server{store: st, mb: mb, discogs: dc, maxAge: 24 * time.Hour}
+func New(st *store.Store, mb *sources.MusicBrainz, userAgent string) *Server {
+	return &Server{store: st, mb: mb, userAgent: userAgent, maxAge: 24 * time.Hour}
 }
 
-// SetSubsonic configures the Subsonic server used by /api/sync/subsonic.
-func (s *Server) SetSubsonic(c *subsonic.Client) { s.subsonic = c }
+// LoadConfig applies the stored settings.
+func (s *Server) LoadConfig() error {
+	cfg, _, err := s.store.Config()
+	if err != nil {
+		return err
+	}
+	s.applyConfig(cfg)
+	return nil
+}
 
-// SetMelody configures the melody engine used by /api/sync/melody.
-func (s *Server) SetMelody(c *melody.Client) { s.melody = c }
+func (s *Server) applyConfig(cfg model.Config) {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	if cfg.Discogs.Token != s.cfg.Discogs.Token || (s.discogs == nil && cfg.Discogs.Token != "") {
+		s.discogs = nil
+		if cfg.Discogs.Token != "" {
+			s.discogs = sources.NewDiscogs(cfg.Discogs.Token, s.userAgent)
+		}
+	}
+	s.cfg = cfg
+}
+
+func (s *Server) config() model.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg
+}
+
+// dc returns the Discogs client, or nil when no token is configured.
+func (s *Server) dc() *sources.Discogs {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.discogs
+}
 
 func (s *Server) SetWatcher(w *watch.Watcher) { s.watcher = w }
-
-// SetMPD configures the MPD server used by /api/sync/mpd.
-func (s *Server) SetMPD(addr, password string) {
-	s.mpdAddr = addr
-	s.mpdPassword = password
-}
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -77,26 +99,37 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("PUT /api/releases/{id}/state", s.handleSetState)
 	mux.HandleFunc("POST /api/sync", s.handleSync)
-	mux.HandleFunc("POST /api/sync/mpd", s.handleSyncMPD)
-	mux.HandleFunc("POST /api/sync/subsonic", s.handleSyncSubsonic)
-	mux.HandleFunc("POST /api/sync/melody", s.handleSyncMelody)
+	mux.HandleFunc("POST /api/sync/library", s.handleSyncLibrary)
 	mux.HandleFunc("GET /api/sync/status", s.handleSyncStatus)
 	mux.HandleFunc("GET /api/dumps", s.handleDumpStatus)
 	mux.HandleFunc("PUT /api/dumps/schedule", s.handleDumpSchedule)
 	mux.HandleFunc("POST /api/dumps/check", s.handleDumpCheck)
+	mux.HandleFunc("PUT /api/dumps/releases", s.handleReleaseSettings)
+	mux.HandleFunc("POST /api/dumps/releases/check", s.handleReleaseCheck)
 	mux.HandleFunc("GET /api/notifications", s.handleNotifications)
 	mux.HandleFunc("POST /api/notifications/read", s.handleReadNotifications)
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.config()
 		writeJSON(w, http.StatusOK, map[string]bool{
-			"mpd":      s.mpdAddr != "",
-			"subsonic": s.subsonic != nil,
-			"melody":   s.melody != nil,
-			"discogs":  s.discogs != nil,
+			"mpd":      cfg.MPD.Enabled,
+			"subsonic": cfg.Subsonic.Enabled,
+			"melody":   cfg.Melody.Enabled,
+			"discogs":  s.dc() != nil,
 		})
 	})
+	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
+	mux.HandleFunc("POST /api/sources/{name}/test", s.handleTestSource)
+	mux.HandleFunc("GET /api/auth", s.handleAuthState)
+	mux.HandleFunc("POST /api/auth/setup", s.handleAuthSetup)
+	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	mux.HandleFunc("PUT /api/auth/password", s.handleChangePassword)
+	mux.HandleFunc("POST /api/auth/token", s.handleNewAPIToken)
+	mux.HandleFunc("DELETE /api/auth/token", s.handleRevokeAPIToken)
 	web, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServerFS(web))
-	return logRequests(mux)
+	return logRequests(s.requireAuth(mux))
 }
 
 func logRequests(next http.Handler) http.Handler {
@@ -255,16 +288,16 @@ func (s *Server) fetchAndStore(ctx context.Context, mbid string) (model.Artist, 
 	}
 
 	var dcGroups []model.ReleaseGroup
-	if s.discogs != nil {
+	if discogs := s.dc(); discogs != nil {
 		if artist.DiscogsID == 0 {
-			did, err := s.discogs.FindArtistID(ctx, artist.Name)
+			did, err := discogs.FindArtistID(ctx, artist.Name)
 			if err != nil {
 				log.Printf("discogs artist search failed for %q: %v", artist.Name, err)
 			}
 			artist.DiscogsID = did
 		}
 		if artist.DiscogsID > 0 {
-			dcGroups, err = s.discogs.ReleaseGroups(ctx, artist.DiscogsID)
+			dcGroups, err = discogs.ReleaseGroups(ctx, artist.DiscogsID)
 			if err != nil {
 				// Discogs being down shouldn't kill the whole request.
 				log.Printf("discogs releases fetch failed for %s: %v", artist.Name, err)
@@ -341,7 +374,8 @@ func (s *Server) handleDeleteArtist(w http.ResponseWriter, r *http.Request) {
 // album list with singles and bootlegs. Fetching each master's versions lets
 // us type them properly and drop unofficial/promo-only entries.
 func (s *Server) classifyDiscogsOnly(ctx context.Context, groups []model.ReleaseGroup) []model.ReleaseGroup {
-	if s.discogs == nil {
+	discogs := s.dc()
+	if discogs == nil {
 		return groups
 	}
 	out := groups[:0]
@@ -350,7 +384,7 @@ func (s *Server) classifyDiscogsOnly(ctx context.Context, groups []model.Release
 			out = append(out, g)
 			continue
 		}
-		c, err := s.discogs.ClassifyMaster(ctx, g.DiscogsMasterID)
+		c, err := discogs.ClassifyMaster(ctx, g.DiscogsMasterID)
 		if err != nil {
 			// Leave it as-is rather than losing the entry.
 			log.Printf("classify discogs master %d (%q): %v", g.DiscogsMasterID, g.Title, err)

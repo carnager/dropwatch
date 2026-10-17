@@ -107,3 +107,39 @@ func (s *Server) handleReadNotifications(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
+
+func (s *Server) handleReleaseSettings(w http.ResponseWriter, r *http.Request) {
+	if s.watcher == nil {
+		writeErr(w, http.StatusServiceUnavailable, "dump scheduling is unavailable")
+		return
+	}
+	var settings watch.ReleaseSettings
+	if !decodeOne(w, r, 4096, &settings) {
+		return
+	}
+	if err := settings.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.watcher.ConfigureReleases(settings); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.watcher.View())
+}
+
+func (s *Server) handleReleaseCheck(w http.ResponseWriter, r *http.Request) {
+	if s.watcher == nil {
+		writeErr(w, http.StatusServiceUnavailable, "dump scheduling is unavailable")
+		return
+	}
+	if err := s.watcher.CheckReleasesNow(); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, watch.ErrRunning) {
+			status = http.StatusConflict
+		}
+		writeErr(w, status, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, s.watcher.View())
+}

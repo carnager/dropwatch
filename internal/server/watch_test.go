@@ -26,14 +26,20 @@ func TestDumpSettingsAndCachedArtist(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer watcher.Close()
-	s := New(st, nil, nil) // A live API call would fail this test.
+	s := New(st, nil, "test") // A live API call would fail this test.
 	s.SetWatcher(watcher)
 	s.maxAge = -time.Hour
 	handler := s.Handler()
+	token, err := st.NewAPIToken()
+	if err != nil {
+		t.Fatal(err)
+	}
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(method, path, strings.NewReader(body)))
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, req)
 		return response
 	}
 	for _, invalid := range []string{

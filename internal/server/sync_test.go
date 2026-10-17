@@ -57,7 +57,7 @@ func TestSyncJointCreditResolvesToLeadArtist(t *testing.T) {
 	st := syncStore(t)
 	trackArtist(t, st, "dear-reader", "Dear Reader", "Rivonia", "We Followed Every Sound")
 	trackArtist(t, st, "nick-cave", "Nick Cave", "Carnage")
-	s := New(st, nil, nil) // A live MusicBrainz call would panic on the nil client.
+	s := New(st, nil, "test") // A live MusicBrainz call would panic on the nil client.
 	s.runSyncArtists(&mpdJob{Running: true}, []syncArtist{{
 		Name:   "Dear Reader & Deutsches Filmorchester Babelsberg",
 		Albums: []syncAlbum{{Title: "We Followed Every Sound"}},
@@ -102,7 +102,7 @@ func TestSyncResolvesNewArtistsFromKeptDump(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer watcher.Close()
-	s := New(st, nil, nil) // Resolution must not touch the web service.
+	s := New(st, nil, "test") // Resolution must not touch the web service.
 	s.SetWatcher(watcher)
 	s.runSyncArtists(&mpdJob{Running: true}, []syncArtist{{Name: "Boards of Canada", Albums: []syncAlbum{{Title: "Geogaddi"}}}}, true)
 	if got := owned(t, st, "boc"); len(got) != 1 || got[0] != "Geogaddi" {
@@ -116,7 +116,7 @@ func TestSyncResolvesNewArtistsFromKeptDump(t *testing.T) {
 func TestSkipExistingStillMarksNewlyOwnedAlbums(t *testing.T) {
 	st := syncStore(t)
 	trackArtist(t, st, "err", "Emma Ruth Rundle", "Engine of Hell", "These Killing Times")
-	s := New(st, nil, nil) // Known artists must not cause web-service requests.
+	s := New(st, nil, "test") // Known artists must not cause web-service requests.
 	job := &mpdJob{Running: true}
 	s.runSyncArtists(job, []syncArtist{{Name: "Emma Ruth Rundle", Albums: []syncAlbum{{Title: "These Killing Times"}}}}, true)
 	if got := owned(t, st, "err"); len(got) != 1 || got[0] != "These Killing Times" {

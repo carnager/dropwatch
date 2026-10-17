@@ -304,3 +304,60 @@ func (s *Store) ReadNotifications(now time.Time, types []string) error {
 		append([]any{now.UTC().Format(time.RFC3339)}, filterArgs...)...)
 	return err
 }
+
+// KnownReleaseGroups maps every stored release group to the artists it is
+// stored under (several for collaborations).
+func (s *Store) KnownReleaseGroups() (map[string][]string, error) {
+	rows, err := s.db.Query(`SELECT id, artist_id FROM release_groups`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var rg, artist string
+		if err := rows.Scan(&rg, &artist); err != nil {
+			return nil, err
+		}
+		out[rg] = append(out[rg], artist)
+	}
+	return out, rows.Err()
+}
+
+// ApplyReleaseTitles replaces the release-title aliases of each given release
+// group (for every artist it is stored under) in one transaction. Groups not
+// in the map keep theirs: they may be newer than the dump.
+func (s *Store) ApplyReleaseTitles(ctx context.Context, titles map[string][]Alias) error {
+	known, err := s.KnownReleaseGroups()
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	del, err := tx.PrepareContext(ctx, `DELETE FROM release_aliases WHERE artist_id = ? AND rg_id = ?`)
+	if err != nil {
+		return err
+	}
+	defer del.Close()
+	ins, err := tx.PrepareContext(ctx, `INSERT OR IGNORE INTO release_aliases (artist_id, rg_id, norm_title, release_mbid) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer ins.Close()
+	for rg, aliases := range titles {
+		for _, artist := range known[rg] {
+			if _, err := del.ExecContext(ctx, artist, rg); err != nil {
+				return err
+			}
+			for _, a := range aliases {
+				if _, err := ins.ExecContext(ctx, artist, rg, a.NormTitle, a.ReleaseMBID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return tx.Commit()
+}

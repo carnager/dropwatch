@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"dropwatch/internal/melody"
+	"dropwatch/internal/model"
 	"dropwatch/internal/server"
 	"dropwatch/internal/sources"
 	"dropwatch/internal/store"
-	"dropwatch/internal/subsonic"
 	"dropwatch/internal/watch"
 )
 
@@ -36,11 +36,13 @@ func run() error {
 	}
 	addr := flag.String("addr", ":8080", "listen address")
 	dbPath := flag.String("db", "dropwatch.db", "path to SQLite database")
-	dumpDir := flag.String("dump-dir", "", "temporary dump download directory (default: <db path>.dumps)")
-	mpdAddr := flag.String("mpd", os.Getenv("MPD_HOST"), "MPD server address (host[:port]) for /api/sync/mpd; also read from MPD_HOST")
-	discogsToken := flag.String("discogs-token", os.Getenv("DISCOGS_TOKEN"), "Discogs personal access token; also read from DISCOGS_TOKEN")
-	subsonicURL := flag.String("subsonic", os.Getenv("SUBSONIC_URL"), "Subsonic-compatible server URL for /api/sync/subsonic; also read from SUBSONIC_URL (credentials via SUBSONIC_USER/SUBSONIC_PASSWORD)")
-	melodyAddr := flag.String("melody", os.Getenv("MELODY_SERVER"), "melody engine address (host[:port], default port 6603) for /api/sync/melody; also read from MELODY_SERVER (password via MELODY_PASSWORD or MELODY_PASSWORD_FILE)")
+	dumpDir := flag.String("dump-dir", "", "dump download directory (default: <db path>.dumps)")
+	// Everything else is set up in the web UI. These only seed the settings
+	// of a new database, so existing setups carry over on upgrade.
+	mpdAddr := flag.String("mpd", os.Getenv("MPD_HOST"), "first start only: MPD address (host[:port], password@host); also MPD_HOST")
+	discogsToken := flag.String("discogs-token", os.Getenv("DISCOGS_TOKEN"), "first start only: Discogs token; also DISCOGS_TOKEN")
+	subsonicURL := flag.String("subsonic", os.Getenv("SUBSONIC_URL"), "first start only: Subsonic URL; also SUBSONIC_URL (+ SUBSONIC_USER/SUBSONIC_PASSWORD)")
+	melodyAddr := flag.String("melody", os.Getenv("MELODY_SERVER"), "first start only: melody engine address; also MELODY_SERVER (+ MELODY_PASSWORD or MELODY_PASSWORD_FILE)")
 	flag.Parse()
 
 	const userAgent = "dropwatch/0.1 (https://github.com/carnager/dropwatch)"
@@ -51,41 +53,23 @@ func run() error {
 	}
 	defer st.Close()
 
-	mb := sources.NewMusicBrainz(userAgent)
-
-	var dc *sources.Discogs
-	if *discogsToken != "" {
-		dc = sources.NewDiscogs(*discogsToken, userAgent)
-		log.Print("discogs source enabled")
-	} else {
-		log.Print("no discogs token (-discogs-token / DISCOGS_TOKEN); running with MusicBrainz only")
+	if _, configured, err := st.Config(); err != nil {
+		return fmt.Errorf("read settings: %w", err)
+	} else if !configured {
+		seed := seedConfig(*mpdAddr, *subsonicURL, *melodyAddr, *discogsToken)
+		if err := st.SaveConfig(seed); err != nil {
+			return fmt.Errorf("save settings: %w", err)
+		}
+		log.Printf("settings initialized (mpd: %v, subsonic: %v, melody: %v, discogs: %v); change them in the web UI",
+			seed.MPD.Enabled, seed.Subsonic.Enabled, seed.Melody.Enabled, seed.Discogs.Token != "")
 	}
 
-	srv := server.New(st, mb, dc)
-	if *mpdAddr != "" {
-		// MPD convention: MPD_HOST may be "password@host".
-		host, password := *mpdAddr, os.Getenv("MPD_PASSWORD")
-		if pw, h, ok := strings.Cut(host, "@"); ok {
-			password, host = pw, h
-		}
-		srv.SetMPD(host, password)
-		log.Printf("mpd sync enabled against %s", host)
+	srv := server.New(st, sources.NewMusicBrainz(userAgent), userAgent)
+	if err := srv.LoadConfig(); err != nil {
+		return fmt.Errorf("load settings: %w", err)
 	}
-	if *subsonicURL != "" {
-		user, pass := os.Getenv("SUBSONIC_USER"), os.Getenv("SUBSONIC_PASSWORD")
-		if user == "" || pass == "" {
-			return fmt.Errorf("-subsonic requires SUBSONIC_USER and SUBSONIC_PASSWORD env vars")
-		}
-		srv.SetSubsonic(subsonic.New(*subsonicURL, user, pass))
-		log.Printf("subsonic sync enabled against %s", *subsonicURL)
-	}
-	if *melodyAddr != "" {
-		client, err := melodyClient(*melodyAddr)
-		if err != nil {
-			return err
-		}
-		srv.SetMelody(client)
-		log.Printf("melody sync enabled against %s", *melodyAddr)
+	if set, err := st.HasAdminPassword(); err == nil && !set {
+		log.Printf("no admin password yet: open the web UI to set one")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -117,17 +101,53 @@ func run() error {
 	return nil
 }
 
-// melodyClient reads the engine password from MELODY_PASSWORD or the file
-// named by MELODY_PASSWORD_FILE, the variables melody's own tools use.
-// A unix socket needs none.
-func melodyClient(addr string) (*melody.Client, error) {
+// seedConfig turns the legacy flags and env vars into initial settings.
+// Sources that can't connect as given (missing credentials) start disabled
+// but keep what was provided.
+func seedConfig(mpdAddr, subsonicURL, melodyAddr, discogsToken string) model.Config {
+	var c model.Config
+	if mpdAddr != "" {
+		// MPD convention: MPD_HOST may be "password@host".
+		host, password := mpdAddr, os.Getenv("MPD_PASSWORD")
+		if pw, h, ok := strings.Cut(host, "@"); ok {
+			password, host = pw, h
+		}
+		c.MPD = model.MPDConfig{Enabled: true, Address: host, Password: password}
+	}
+	if subsonicURL != "" {
+		c.Subsonic = model.SubsonicConfig{URL: subsonicURL, User: os.Getenv("SUBSONIC_USER"), Password: os.Getenv("SUBSONIC_PASSWORD")}
+		c.Subsonic.Enabled = c.Subsonic.User != "" && c.Subsonic.Password != ""
+	}
+	if melodyAddr != "" {
+		password, _ := melodyPassword()
+		c.Melody = model.MelodyConfig{Address: melodyAddr, Password: password}
+		c.Melody.Enabled = password != "" || strings.HasPrefix(melodyAddr, "/")
+	}
+	c.Discogs.Token = discogsToken
+	return c
+}
+
+// melodyPassword reads MELODY_PASSWORD or the file named by
+// MELODY_PASSWORD_FILE, the variables melody's own tools use.
+func melodyPassword() (string, error) {
 	password := os.Getenv("MELODY_PASSWORD")
 	if path := os.Getenv("MELODY_PASSWORD_FILE"); password == "" && path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("melody password file: %w", err)
+			return "", fmt.Errorf("melody password file: %w", err)
 		}
 		password = strings.TrimSpace(string(data))
+	}
+	return password, nil
+}
+
+// melodyClient reads the engine password from MELODY_PASSWORD or the file
+// named by MELODY_PASSWORD_FILE, the variables melody's own tools use.
+// A unix socket needs none.
+func melodyClient(addr string) (*melody.Client, error) {
+	password, err := melodyPassword()
+	if err != nil {
+		return nil, err
 	}
 	if password == "" && !strings.HasPrefix(addr, "/") {
 		return nil, fmt.Errorf("-melody over TCP requires MELODY_PASSWORD or MELODY_PASSWORD_FILE")

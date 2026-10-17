@@ -46,7 +46,8 @@ type Settings struct {
 
 type View struct {
 	Settings
-	Status Status `json:"status"`
+	Status   Status      `json:"status"`
+	Releases ReleaseView `json:"releases"`
 }
 
 type Watcher struct {
@@ -58,6 +59,8 @@ type Watcher struct {
 	mu        sync.Mutex
 	settings  Settings
 	status    Status
+	releases  ReleaseSettings
+	relStatus Status
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
@@ -94,6 +97,19 @@ func newWatcher(st *store.Store, dir, userAgent, baseURL string) (*Watcher, erro
 		w.status.LastError = "Previous check was interrupted; it will retry at the next scheduled time."
 	}
 	w.status.Running, w.status.Phase = false, "idle"
+	w.releases = ReleaseSettings{IntervalDays: 30}
+	if err := st.LoadDumpSetting("release_settings", &w.releases); err != nil {
+		cancel()
+		return nil, err
+	}
+	if err := st.LoadDumpSetting("release_status", &w.relStatus); err != nil {
+		cancel()
+		return nil, err
+	}
+	if w.relStatus.Running {
+		w.relStatus.LastError = "Previous run was interrupted; it will retry at the next scheduled time."
+	}
+	w.relStatus.Running, w.relStatus.Phase = false, "idle"
 	w.wg.Add(1)
 	go w.loop()
 	return w, nil
@@ -112,7 +128,8 @@ func (w *Watcher) View() View {
 	defer w.mu.Unlock()
 	settings := w.settings
 	settings.Schedule.Days = append([]int{}, settings.Schedule.Days...)
-	return View{Settings: settings, Status: w.status}
+	return View{Settings: settings, Status: w.status,
+		Releases: ReleaseView{ReleaseSettings: w.releases, NextRun: w.nextReleaseRunLocked(), Status: w.relStatus}}
 }
 
 func (w *Watcher) Configure(schedule model.DumpSchedule) error {
@@ -147,6 +164,13 @@ func (w *Watcher) loop() {
 func (w *Watcher) tick(now time.Time) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	// The release dump waits for a running release-group check: its titles
+	// only cover groups already in the database.
+	if next := w.nextReleaseRunLocked(); !w.closed && !w.status.Running && !w.relStatus.Running && !next.IsZero() && !now.Before(next) {
+		if err := w.startReleasesLocked(); err != nil {
+			log.Printf("starting release dump: %v", err)
+		}
+	}
 	if w.closed || w.status.Running || !w.settings.Schedule.Enabled || w.settings.NextRun.IsZero() || now.Before(w.settings.NextRun) {
 		return
 	}
@@ -213,9 +237,6 @@ func (w *Watcher) check(ctx context.Context, previous string, loc *time.Location
 	if err != nil {
 		return previous, err
 	}
-	if len(artists) == 0 {
-		return previous, fmt.Errorf("track or import artists before checking for new releases")
-	}
 	tracked := make(map[string]bool, len(artists))
 	needsBaseline := false
 	for _, artist := range artists {
@@ -237,20 +258,9 @@ func (w *Watcher) check(ctx context.Context, previous string, loc *time.Location
 	if version == previous && !needsBaseline && w.DumpPath() != "" {
 		return previous, nil
 	}
-	manifest, err := w.smallFile(ctx, w.baseURL+version+"/SHA256SUMS")
+	checksum, err := w.checksum(ctx, version, "release-group.tar.xz")
 	if err != nil {
 		return previous, err
-	}
-	checksum := ""
-	for _, line := range strings.Split(string(manifest), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == "release-group.tar.xz" {
-			checksum = strings.ToLower(fields[0])
-		}
-	}
-	decoded, err := hex.DecodeString(checksum)
-	if err != nil || len(decoded) != sha256.Size {
-		return previous, fmt.Errorf("missing or invalid release-group checksum")
 	}
 	if err := os.MkdirAll(w.dir, 0755); err != nil {
 		return previous, err
@@ -279,6 +289,14 @@ func (w *Watcher) check(ctx context.Context, previous string, loc *time.Location
 	}
 	if hex.EncodeToString(hash.Sum(nil)) != checksum {
 		return previous, fmt.Errorf("dump checksum mismatch; download discarded")
+	}
+	if len(tracked) == 0 {
+		// A fresh install: keep the snapshot so the first library sync can
+		// resolve every artist from it.
+		if err := os.Rename(file.Name(), w.keptPath()); err != nil {
+			return previous, fmt.Errorf("keeping dump: %w", err)
+		}
+		return version, nil
 	}
 	w.mu.Lock()
 	w.status.Phase = "scanning"
@@ -313,6 +331,26 @@ func (w *Watcher) DumpPath() string {
 		return ""
 	}
 	return w.keptPath()
+}
+
+// checksum reads a file's SHA-256 from the dump version's manifest.
+func (w *Watcher) checksum(ctx context.Context, version, name string) (string, error) {
+	manifest, err := w.smallFile(ctx, w.baseURL+version+"/SHA256SUMS")
+	if err != nil {
+		return "", err
+	}
+	checksum := ""
+	for _, line := range strings.Split(string(manifest), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == name {
+			checksum = strings.ToLower(fields[0])
+		}
+	}
+	decoded, err := hex.DecodeString(checksum)
+	if err != nil || len(decoded) != sha256.Size {
+		return "", fmt.Errorf("missing or invalid checksum for %s", name)
+	}
+	return checksum, nil
 }
 
 type progressWriter struct{ watcher *Watcher }

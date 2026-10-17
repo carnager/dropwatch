@@ -28,7 +28,7 @@ func Open(path string) (*Store, error) {
 	if err := migrate(db); err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(watchSchema); err != nil {
+	if _, err := db.Exec(watchSchema + settingsSchema); err != nil {
 		return nil, err
 	}
 	st := &Store{db: db}

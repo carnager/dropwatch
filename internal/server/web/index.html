@@ -140,6 +140,29 @@
   .notification button { color: var(--text); padding-left: 0; font-weight: 500; text-align: left; }
   .notification .detail { color: var(--muted); font-size: .8rem; }
 
+  .settings input[type=password], .settings input[type=url] {
+    font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 3px; padding: .35rem .5rem;
+  }
+  .settings .field { display: grid; grid-template-columns: 7.5rem 1fr; align-items: baseline; gap: .4rem .8rem; margin: .45rem 0; }
+  .settings .field > span { color: var(--muted); font-size: .85rem; }
+  .settings .field input { width: 100%; min-width: 0; }
+  .source { border-bottom: 1px solid var(--line); padding: .9rem 0 .6rem; }
+  .source > label:first-child { font-weight: 500; }
+  .source .body.off { opacity: .45; }
+  .source .test { display: flex; align-items: baseline; gap: .6rem; margin-top: .2rem; }
+  .source .result { font-size: .8rem; color: var(--muted); }
+  .result.ok { color: var(--owned); }
+  .result.err { color: var(--accent); }
+  .secret-note { font-size: .78rem; color: var(--faint); grid-column: 2; margin-top: -.25rem; }
+  .token { font-family: var(--mono); font-size: .8rem; word-break: break-all; background: var(--hover); padding: .5rem; border-radius: 3px; }
+
+  #authView { max-width: 22rem; margin: 18vh auto 0; }
+  #authView .wordmark { display: block; margin-bottom: 1.6rem; }
+  #authView h2 { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0 0 .8rem; }
+  #authView input { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 0; border-bottom: 1px solid var(--line); padding: .45rem 0; outline: none; margin-bottom: .6rem; }
+  #authView input:focus { border-bottom-color: var(--accent); }
+
   .hidden { display: none; }
   @media (max-width: 560px) {
     .row .frac, .row .bar, .rel .src { display: none; }
@@ -149,6 +172,16 @@
 </head>
 <body>
 <div class="wrap">
+  <form id="authView" class="hidden">
+    <span class="wordmark">drop<b>watch</b></span>
+    <h2 id="authTitle">Log in</h2>
+    <p class="hint" id="authHint"></p>
+    <input type="password" id="authPassword" autocomplete="current-password" placeholder="password" required>
+    <input type="password" id="authConfirm" class="hidden" autocomplete="new-password" placeholder="repeat password">
+    <button type="submit" class="pill on" id="authSubmit">log in</button>
+    <p class="note" id="authMessage" role="status"></p>
+  </form>
+  <div id="app" class="hidden">
   <header>
     <span class="wordmark">drop<b>watch</b></span>
     <nav>
@@ -221,6 +254,41 @@
   </div>
 
   <div id="settingsView" class="hidden">
+    <div class="sectionhead"><h2>Library</h2></div>
+    <p class="hint">Where your music lives. Enable any number of sources; a sync reads all of them, and an album owned in any one counts as owned.</p>
+    <form id="sourcesForm" class="settings" autocomplete="off">
+      <div class="source" data-source="mpd">
+        <label><input type="checkbox" name="enabled"> MPD</label>
+        <div class="body">
+          <label class="field"><span>Address</span><input type="text" name="address" placeholder="localhost:6600 or /run/mpd/socket"></label>
+          <label class="field"><span>Password</span><input type="password" name="password" placeholder="none"></label>
+          <div class="test"><button type="button" class="pill">test connection</button><span class="result"></span></div>
+        </div>
+      </div>
+      <div class="source" data-source="subsonic">
+        <label><input type="checkbox" name="enabled"> Subsonic <span class="hint">(Navidrome, gonic, Airsonic, …)</span></label>
+        <div class="body">
+          <label class="field"><span>URL</span><input type="url" name="url" placeholder="https://music.example.org"></label>
+          <label class="field"><span>User</span><input type="text" name="user"></label>
+          <label class="field"><span>Password</span><input type="password" name="password"></label>
+          <div class="test"><button type="button" class="pill">test connection</button><span class="result"></span></div>
+        </div>
+      </div>
+      <div class="source" data-source="melody">
+        <label><input type="checkbox" name="enabled"> melody</label>
+        <div class="body">
+          <label class="field"><span>Address</span><input type="text" name="address" placeholder="host:6603 or a socket path"></label>
+          <label class="field"><span>Password</span><input type="password" name="password"></label>
+          <div class="test"><button type="button" class="pill">test connection</button><span class="result"></span></div>
+        </div>
+      </div>
+      <div class="sectionhead"><h2>Discogs</h2></div>
+      <p class="hint">Optional. A <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">personal access token</a> adds releases MusicBrainz lacks.</p>
+      <label class="field"><span>Token</span><input type="password" id="discogsToken" placeholder="none"></label>
+      <div class="actions"><button type="submit" class="pill on" id="saveSources">save</button></div>
+    </form>
+    <p id="sourcesMessage" class="note" role="status"></p>
+
     <div class="sectionhead"><h2>Release checks</h2></div>
     <p class="hint">Check your tracked artists for new music using MusicBrainz dumps. New dumps are published on Wednesdays and Saturdays; checking the following day gives them time to finish.</p>
     <form id="dumpSchedule" class="settings">
@@ -253,6 +321,30 @@
     <div id="dumpStatus" class="hint" aria-live="polite"></div>
     <p class="hint">The first scan for each artist announces its releases from the last 30 days. Later scans notify about newly listed upcoming releases and releases from the last 30 days; older additions and undated entries still update the discography. Each new dump is about 1 GB. Downloads are skipped when that version has already been processed, unless newly tracked artists need a baseline.</p>
     <p class="hint">Dropwatch must be running to download. If it misses a scheduled check while stopped, it checks once on the next start. Failed downloads retry at the next scheduled time, or with “check now”. Turning off automatic checks lets an active check finish.</p>
+
+    <div class="sectionhead"><h2>Release titles</h2></div>
+    <p class="hint">Optional. The release dump lists every edition of every album. It lets library albums tagged with a release ID (Subsonic, melody) or named after a reissue match exactly. It is about 21 GB; it streams through without being stored, and only titles for albums already in dropwatch are kept.</p>
+    <form id="releaseForm" class="settings">
+      <label><input type="checkbox" id="releaseEnabled"> Download release titles on the schedule above, at most every
+        <select id="releaseInterval"><option value="7">week</option><option value="14">two weeks</option><option value="30">month</option><option value="90">three months</option></select></label>
+      <div class="actions">
+        <button type="submit" class="pill on">save</button>
+        <button type="button" class="pill" id="checkReleases">download now</button>
+      </div>
+    </form>
+    <p id="releaseMessage" class="note" role="status"></p>
+    <div id="releaseStatus" class="hint" aria-live="polite"></div>
+
+    <div class="sectionhead"><h2>Account</h2><button type="button" id="logout">log out</button></div>
+    <form id="passwordForm" class="settings">
+      <label class="field"><span>Current</span><input type="password" id="pwCurrent" autocomplete="current-password" required></label>
+      <label class="field"><span>New</span><input type="password" id="pwNew" autocomplete="new-password" minlength="8" required></label>
+      <div class="actions"><button type="submit" class="pill on">change password</button></div>
+    </form>
+    <p id="passwordMessage" class="note" role="status"></p>
+    <p class="hint">An API token lets scripts and media players use the API: send it as <code>Authorization: Bearer &lt;token&gt;</code>. Creating a new one replaces the old.</p>
+    <div class="settings actions"><button type="button" class="pill" id="newToken">create token</button><button type="button" id="revokeToken" class="hidden">revoke</button></div>
+    <p id="tokenMessage" class="note" role="status"></p>
   </div>
 
   <!-- ===== artist detail ===== -->
@@ -266,24 +358,73 @@
       <button type="button" class="pill" data-f="missing">missing only</button>
       <button type="button" class="pill" data-f="variants">variants</button>
       <span class="spring"></span>
-      <button type="button" id="syncThis" class="hidden">sync from mpd</button>
+      <button type="button" id="syncThis" class="hidden">sync this artist</button>
       <button type="button" id="refresh">refresh sources</button>
       <button type="button" id="untrack">untrack</button>
     </div>
     <div class="note hidden" id="status"></div>
     <div id="releases"></div>
   </div>
+  </div>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 
-async function api(path, opts) {
-  const res = await fetch(path, opts);
+async function api(path, opts = {}) {
+  // The header marks requests as the app's own (the server's CSRF check).
+  const res = await fetch(path, { ...opts, headers: { "X-Dropwatch": "1", ...(opts.headers || {}) } });
   const body = await res.json();
+  if (res.status === 401 && !path.startsWith("/api/auth")) {
+    showAuth(false);
+    throw new Error("Logged out.");
+  }
   if (!res.ok) throw new Error(body.error || res.statusText);
   return body;
 }
+
+const jsonBody = (method, data) => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+
+/* ---------- login ---------- */
+
+let appStarted = false;
+let authSetup = false;
+
+function showAuth(setup) {
+  authSetup = setup;
+  $("app").classList.add("hidden");
+  $("authView").classList.remove("hidden");
+  $("authTitle").textContent = setup ? "Set a password" : "Log in";
+  $("authHint").textContent = setup
+    ? "Welcome. Choose the password that protects this dropwatch; it needs at least 8 characters."
+    : "";
+  $("authConfirm").classList.toggle("hidden", !setup);
+  $("authConfirm").required = setup;
+  $("authPassword").autocomplete = setup ? "new-password" : "current-password";
+  $("authSubmit").textContent = setup ? "set password" : "log in";
+  $("authPassword").focus();
+}
+
+$("authView").onsubmit = async e => {
+  e.preventDefault();
+  const password = $("authPassword").value;
+  if (authSetup && password !== $("authConfirm").value) {
+    $("authMessage").textContent = "The passwords differ.";
+    return;
+  }
+  $("authSubmit").disabled = true;
+  try {
+    await api(authSetup ? "/api/auth/setup" : "/api/auth/login", jsonBody("POST", { password }));
+    $("authPassword").value = $("authConfirm").value = "";
+    $("authMessage").textContent = "";
+    $("authView").classList.add("hidden");
+    startApp(authSetup);
+  } catch (err) {
+    $("authMessage").textContent = err.message;
+  } finally {
+    $("authSubmit").disabled = false;
+  }
+};
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -330,7 +471,7 @@ function route() {
   if (currentView === "artists") loadArtists();
   if (currentView === "library") loadLibrary();
   if (currentView === "notifications") loadNotifications();
-  if (currentView === "settings") loadDumpSettings();
+  if (currentView === "settings") { loadSettings(); loadDumpSettings(); }
 }
 window.addEventListener("hashchange", route);
 
@@ -406,7 +547,7 @@ function renderArtists() {
   const gl = $("gapsList");
   gl.innerHTML = "";
   if (!allArtists.length) {
-    gl.appendChild(el("div", "empty", "Nothing tracked yet — sync your player, or add artists via lookup."));
+    gl.appendChild(el("div", "empty", "Nothing tracked yet. Set up your library in settings, download the MusicBrainz data there, then press “sync library”. Or add single artists via lookup."));
     $("gapsAgg").textContent = "";
   } else if (!gaps.length) {
     gl.appendChild(el("div", "empty", q ? "No matching artists with gaps." : "No gaps. Your collection is complete."));
@@ -642,15 +783,15 @@ $("refresh").onclick = () => currentArtist && openArtist(currentArtist, true);
 
 // Per-artist pull sync: matches only this artist's albums from the player,
 // marking owned ones, then reloads the page. Exact name match server-side.
-let syncProvider = null; // set from /api/config below
+let hasSources = false; // set by initSyncControls
 $("syncThis").onclick = async () => {
-  if (!currentArtist || !syncProvider) return;
+  if (!currentArtist || !hasSources) return;
   const b = $("syncThis");
   b.disabled = true;
   b.textContent = "syncing…";
   const status = $("status");
   try {
-    const url = `/api/sync/${syncProvider}?exact=1&artist=${encodeURIComponent(currentArtist.name)}`;
+    const url = `/api/sync/library?exact=1&artist=${encodeURIComponent(currentArtist.name)}`;
     await api(url, { method: "POST" });
     // Small job (one artist); poll status until it finishes, then reload.
     for (let i = 0; i < 150; i++) {
@@ -661,8 +802,8 @@ $("syncThis").onclick = async () => {
         status.textContent = st.error
           ? "Sync failed: " + st.error
           : (st.total === 0
-              ? `No album artist named “${currentArtist.name}” found in ${syncProvider}.`
-              : `Synced from ${syncProvider}: ${st.owned} owned, ${st.unmatched} unmatched.`);
+              ? `No album artist named “${currentArtist.name}” in your library.`
+              : `Synced: ${st.owned} owned, ${st.unmatched} unmatched.`);
         library = null;
         allArtists = null;
         if (st.total > 0) openArtist(currentArtist);
@@ -674,7 +815,7 @@ $("syncThis").onclick = async () => {
     status.textContent = "Sync failed: " + err.message;
   } finally {
     b.disabled = false;
-    b.textContent = "sync from " + syncProvider;
+    b.textContent = "sync this artist";
   }
 };
 
@@ -710,39 +851,45 @@ $("untrack").onclick = async () => {
 
 /* ---------- sync controls ---------- */
 
-api("/api/config").then(c => {
-  const providers = [["mpd", c.mpd], ["subsonic", c.subsonic], ["melody", c.melody]].filter(p => p[1]).map(p => p[0]);
-  if (!providers.length) return;
-  syncProvider = providers[0];
-  $("syncThis").textContent = "sync from " + syncProvider;
-  $("syncThis").classList.remove("hidden");
+let syncPolling = false;
+
+// initSyncControls (re)builds the header's sync button from the enabled
+// sources; settings call it again after a save.
+async function initSyncControls() {
+  let c;
+  try { c = await api("/api/config"); } catch { return; }
+  const providers = ["mpd", "subsonic", "melody"].filter(p => c[p]);
   const box = $("syncControls");
-  const links = [];
+  box.replaceChildren();
+  hasSources = providers.length > 0;
+  $("syncThis").classList.toggle("hidden", !hasSources);
+  if (!hasSources) return;
 
   const lbl = el("label", "", "");
+  lbl.title = "Known artists are matched against the database only; new artists are looked up.";
   const onlyNew = document.createElement("input");
   onlyNew.type = "checkbox";
   onlyNew.checked = localStorage.getItem("dropwatch.onlyNew") !== "0";
-  onlyNew.onchange = () => localStorage.setItem("dropwatch.onlyNew", onlyNew.checked ? "1" : "0");
+  onlyNew.onchange = () => { try { localStorage.setItem("dropwatch.onlyNew", onlyNew.checked ? "1" : "0"); } catch {} };
   lbl.append(onlyNew, " only new");
 
+  const btn = el("button", "", "sync library");
+  btn.title = "Reads " + providers.join(", ");
   function describe(st) {
     const parts = [`${st.owned} owned`, `${st.missing} missing`];
-    if (st.skipped) parts.push(`${st.skipped} skipped`);
+    if (st.skipped) parts.push(`${st.skipped} known`);
     if (st.unmatched) parts.push(`${st.unmatched} albums unmatched`);
-    if (st.failed) parts.push(`${st.failed} artists failed`);
+    if (st.failed) parts.push(`${st.failed} artists not found`);
     return parts.join(", ");
   }
   function setBusy(busy) {
-    for (const l of links) {
-      l.btn.disabled = busy;
-      l.btn.textContent = busy ? "syncing…" : `sync ${l.name}`;
-    }
+    btn.disabled = busy;
+    btn.textContent = busy ? "syncing…" : "sync library";
   }
   async function poll() {
     let st;
-    try { st = await api("/api/sync/status"); } catch { return; }
-    if (st.idle) return;
+    try { st = await api("/api/sync/status"); } catch { syncPolling = false; return; }
+    if (st.idle) { syncPolling = false; return; }
     if (st.running) {
       setBusy(true);
       $("note").textContent =
@@ -752,6 +899,7 @@ api("/api/config").then(c => {
       if (st.processed % 5 === 0) { allArtists = null; if (currentView === "artists") loadArtists(); }
       setTimeout(poll, 2000);
     } else {
+      syncPolling = false;
       setBusy(false);
       $("note").textContent = st.error
         ? `Sync failed: ${st.error}`
@@ -763,25 +911,170 @@ api("/api/config").then(c => {
       if (currentView === "library") loadLibrary();
     }
   }
-  for (const name of providers) {
-    const btn = el("button", "", `sync ${name}`);
-    btn.onclick = async () => {
-      setBusy(true);
-      try {
-        const url = `/api/sync/${name}` + (onlyNew.checked ? "?skip_existing=1" : "");
-        await api(url, { method: "POST" });
-        poll();
-      } catch (err) {
-        setBusy(false);
-        $("note").textContent = `${name} sync failed to start: ` + err.message;
-      }
-    };
-    links.push({ name, btn });
-    box.append(btn);
+  btn.onclick = async () => {
+    setBusy(true);
+    try {
+      await api("/api/sync/library" + (onlyNew.checked ? "?skip_existing=1" : ""), { method: "POST" });
+      syncPolling = true;
+      poll();
+    } catch (err) {
+      setBusy(false);
+      $("note").textContent = "Sync failed to start: " + err.message;
+    }
+  };
+  box.append(btn, lbl);
+  if (!syncPolling) { syncPolling = true; poll(); } // resume a running sync's progress
+}
+
+/* ---------- settings: sources, Discogs, account ---------- */
+
+// Secrets are write-only: the server says whether one is stored, an empty
+// field keeps it, and "remove" clears it.
+const clearedSecrets = new Set();
+
+function secretField(input, key, isSet, what) {
+  input.value = "";
+  clearedSecrets.delete(key);
+  const field = input.closest(".field");
+  field.querySelector(".secret-note")?.remove();
+  input.placeholder = isSet ? "saved — type to replace" : (input.dataset.empty || "none");
+  if (!isSet) return;
+  const note = el("span", "secret-note", `A ${what} is saved. `);
+  const remove = el("button", "", "remove");
+  remove.type = "button";
+  remove.style.padding = "0";
+  remove.onclick = () => {
+    clearedSecrets.add(key);
+    input.placeholder = "will be removed on save";
+    note.textContent = "";
+  };
+  note.append(remove);
+  field.append(note);
+}
+
+function sourceBlock(name) { return document.querySelector(`.source[data-source="${name}"]`); }
+
+function syncSourceBody(block) {
+  block.querySelector(".body").classList.toggle("off", !block.querySelector('[name="enabled"]').checked);
+}
+
+function renderSettings(data) {
+  const c = data.config;
+  for (const name of ["mpd", "subsonic", "melody"]) {
+    const block = sourceBlock(name);
+    const cfg = c[name];
+    for (const input of block.querySelectorAll("input[name]")) {
+      if (input.name === "enabled") input.checked = cfg.enabled;
+      else if (input.name === "password") secretField(input, name, cfg.passwordSet, "password");
+      else input.value = cfg[input.name] || "";
+    }
+    block.querySelector(".result").textContent = "";
+    syncSourceBody(block);
   }
-  box.append(lbl);
-  poll(); // resume progress display if a sync is already running
-}).catch(() => {});
+  secretField($("discogsToken"), "discogs", c.discogs.tokenSet, "token");
+  $("revokeToken").classList.toggle("hidden", !data.apiTokenSet);
+  $("newToken").textContent = data.apiTokenSet ? "replace token" : "create token";
+}
+
+function settingsUpdate() {
+  const secret = (key, input) => {
+    if (input.value !== "") return input.value;
+    return clearedSecrets.has(key) ? "" : undefined; // undefined: keep stored
+  };
+  const out = {};
+  for (const name of ["mpd", "subsonic", "melody"]) {
+    const block = sourceBlock(name);
+    const cfg = {};
+    for (const input of block.querySelectorAll("input[name]")) {
+      if (input.name === "enabled") cfg.enabled = input.checked;
+      else if (input.name === "password") cfg.password = secret(name, input);
+      else cfg[input.name] = input.value.trim();
+    }
+    out[name] = cfg;
+  }
+  out.discogs = { token: secret("discogs", $("discogsToken")) };
+  return out;
+}
+
+async function loadSettings() {
+  try {
+    renderSettings(await api("/api/settings"));
+  } catch (err) {
+    $("sourcesMessage").textContent = err.message;
+  }
+}
+
+document.querySelectorAll(".source").forEach(block => {
+  block.querySelector('[name="enabled"]').onchange = () => syncSourceBody(block);
+  const button = block.querySelector(".test button");
+  const result = block.querySelector(".result");
+  button.onclick = async () => {
+    button.disabled = true;
+    result.className = "result";
+    result.textContent = "connecting…";
+    try {
+      await api(`/api/sources/${block.dataset.source}/test`, jsonBody("POST", settingsUpdate()));
+      result.className = "result ok";
+      result.textContent = "connected";
+    } catch (err) {
+      result.className = "result err";
+      result.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  };
+});
+
+$("sourcesForm").onsubmit = async e => {
+  e.preventDefault();
+  $("saveSources").disabled = true;
+  try {
+    renderSettings(await api("/api/settings", jsonBody("PUT", settingsUpdate())));
+    $("sourcesMessage").textContent = "Saved.";
+    initSyncControls();
+  } catch (err) {
+    $("sourcesMessage").textContent = err.message;
+  } finally {
+    $("saveSources").disabled = false;
+  }
+};
+
+$("passwordForm").onsubmit = async e => {
+  e.preventDefault();
+  try {
+    await api("/api/auth/password", jsonBody("PUT", { current: $("pwCurrent").value, new: $("pwNew").value }));
+    $("pwCurrent").value = $("pwNew").value = "";
+    $("passwordMessage").textContent = "Password changed. Other browsers have been logged out.";
+  } catch (err) {
+    $("passwordMessage").textContent = err.message;
+  }
+};
+
+$("newToken").onclick = async () => {
+  try {
+    const { token } = await api("/api/auth/token", { method: "POST" });
+    const msg = $("tokenMessage");
+    msg.replaceChildren(el("span", "", "Copy it now; it won't be shown again:"), el("div", "token", token));
+    loadSettings();
+  } catch (err) {
+    $("tokenMessage").textContent = err.message;
+  }
+};
+
+$("revokeToken").onclick = async () => {
+  try {
+    await api("/api/auth/token", { method: "DELETE" });
+    $("tokenMessage").textContent = "Token revoked.";
+    loadSettings();
+  } catch (err) {
+    $("tokenMessage").textContent = err.message;
+  }
+};
+
+$("logout").onclick = async () => {
+  try { await api("/api/auth/logout", { method: "POST" }); } catch {}
+  showAuth(false);
+};
 
 /* ---------- scheduled release discovery ---------- */
 
@@ -827,7 +1120,69 @@ function renderDumpStatus(data) {
   status.appendChild(el("p", "", `Last attempt: ${dumpTime(st.lastAttempt)}. Last successful check: ${dumpTime(st.lastSuccess)}.`));
   if (st.version) status.appendChild(el("p", "", `Processed dump: ${st.version}.`));
   if (st.lastError) status.appendChild(el("p", "", "Last check failed: " + st.lastError));
+  renderReleaseStatus(data);
 }
+
+let releaseDirty = false;
+$("releaseForm").oninput = () => { releaseDirty = true; };
+
+function renderReleaseStatus(data) {
+  const r = data.releases, st = r.status;
+  if (!releaseDirty) {
+    $("releaseEnabled").checked = r.enabled;
+    const interval = String(r.intervalDays);
+    if (![...$("releaseInterval").options].some(o => o.value === interval)) {
+      $("releaseInterval").appendChild(new Option(`${interval} days`, interval));
+    }
+    $("releaseInterval").value = interval;
+  }
+  $("checkReleases").disabled = st.running;
+  $("checkReleases").textContent = st.running ? "downloading…" : "download now";
+  const box = $("releaseStatus");
+  box.replaceChildren();
+  if (r.enabled) {
+    box.appendChild(el("p", "", data.schedule.enabled
+      ? `Next download: ${dumpTime(r.nextRun)}.`
+      : "Waiting for automatic downloads above to be switched on."));
+  }
+  if (st.running) {
+    const gib = n => (n / 1073741824).toFixed(1) + " GiB";
+    let line = `${st.phase}: ${gib(st.bytes)}` + (st.totalBytes > 0 ? ` / ${gib(st.totalBytes)}` : "");
+    if (st.records) line += `, ${st.records.toLocaleString()} releases read`;
+    box.appendChild(el("p", "", line));
+  }
+  if (st.lastAttempt && !st.lastAttempt.startsWith("0001-")) {
+    box.appendChild(el("p", "", `Last attempt: ${dumpTime(st.lastAttempt)}. Last success: ${dumpTime(st.lastSuccess)}.`));
+  }
+  if (st.version) box.appendChild(el("p", "", `Processed release dump: ${st.version}.`));
+  if (st.lastError) box.appendChild(el("p", "", "Last download failed: " + st.lastError));
+}
+
+$("releaseForm").onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const data = await api("/api/dumps/releases", jsonBody("PUT", {
+      enabled: $("releaseEnabled").checked, intervalDays: Number($("releaseInterval").value),
+    }));
+    releaseDirty = false;
+    renderDumpStatus(data);
+    $("releaseMessage").textContent = "Saved.";
+  } catch (err) {
+    $("releaseMessage").textContent = err.message;
+  }
+};
+
+$("checkReleases").onclick = async () => {
+  $("checkReleases").disabled = true;
+  try {
+    renderDumpStatus(await api("/api/dumps/releases/check", { method: "POST" }));
+    $("releaseMessage").textContent = "Download started. It takes a while; you can leave this page.";
+  } catch (err) {
+    $("releaseMessage").textContent = err.message;
+  } finally {
+    await loadDumpSettings();
+  }
+};
 
 async function loadDumpSettings() {
   try {
@@ -952,9 +1307,27 @@ $("readNotifications").onclick = async () => {
 setInterval(() => {
   if (!document.hidden && currentView === "settings") loadDumpSettings();
 }, 5000);
-setInterval(() => { if (!document.hidden) loadNotifications(); }, 60000);
-loadNotifications();
-route();
+// startApp shows the app once logged in. A fresh setup lands in settings,
+// where the library sources are configured.
+function startApp(firstRun = false) {
+  $("app").classList.remove("hidden");
+  initSyncControls();
+  loadNotifications();
+  if (firstRun) location.hash = "settings";
+  route();
+  if (!appStarted) {
+    appStarted = true;
+    setInterval(() => { if (!document.hidden && !$("app").classList.contains("hidden")) loadNotifications(); }, 60000);
+  }
+}
+
+api("/api/auth").then(st => {
+  if (st.authenticated) startApp();
+  else showAuth(st.setupRequired);
+}).catch(err => {
+  $("authView").classList.remove("hidden");
+  $("authMessage").textContent = "Could not reach dropwatch: " + err.message;
+});
 </script>
 </body>
 </html>
