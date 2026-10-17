@@ -28,7 +28,8 @@
   header { display: flex; align-items: center; gap: 1.2rem; margin-bottom: .4rem; flex-wrap: wrap; }
   .wordmark { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
   .wordmark b { color: var(--accent); font-weight: 700; }
-  nav { display: flex; gap: .1rem; }
+  nav { display: flex; flex-wrap: wrap; gap: .1rem; max-width: 100%; }
+  nav .pill { white-space: nowrap; }
   header .spring { flex: 1; }
   header label { display: inline-flex; align-items: center; gap: .3rem; font-size: .8rem; color: var(--muted); cursor: pointer; }
   .note { color: var(--muted); font-size: .85rem; margin: .4rem 0 1.4rem; min-height: 1.2em; }
@@ -121,6 +122,24 @@
   .rel.ignored .title { text-decoration: line-through; text-decoration-color: var(--faint); }
   .rel.missing .year { color: var(--accent); }
 
+  .settings { max-width: 34rem; }
+  #settingsView .hint, #notificationsView .hint { color: var(--muted); }
+  .settings > label, .settings fieldset { display: block; margin: 1rem 0; }
+  .settings input[type=time], .settings input[type=text], .settings select {
+    font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 3px; padding: .35rem .5rem;
+  }
+  .settings fieldset { border: 1px solid var(--line); padding: .6rem; }
+  .settings legend { color: var(--muted); font-size: .85rem; }
+  .weekdays { display: flex; flex-wrap: wrap; gap: .7rem; }
+  .weekdays label { white-space: nowrap; }
+  .settings .actions { display: flex; gap: .8rem; margin: 1.2rem 0; }
+  .notification { padding: .8rem 0; border-bottom: 1px solid var(--line); }
+  .notification.unread { border-left: 2px solid var(--accent); padding-left: .7rem; }
+  .notification p { margin: .2rem 0; }
+  .notification button { color: var(--text); padding-left: 0; font-weight: 500; text-align: left; }
+  .notification .detail { color: var(--muted); font-size: .8rem; }
+
   .hidden { display: none; }
   @media (max-width: 560px) {
     .row .frac, .row .bar, .rel .src { display: none; }
@@ -136,6 +155,8 @@
       <button type="button" class="pill on" data-view="artists">artists</button>
       <button type="button" class="pill" data-view="library">library</button>
       <button type="button" class="pill" data-view="lookup">lookup</button>
+      <button type="button" class="pill" data-view="notifications" id="notificationsTab">notifications</button>
+      <button type="button" class="pill" data-view="settings">settings</button>
     </nav>
     <span class="spring"></span>
     <span id="syncControls"></span>
@@ -187,6 +208,48 @@
     </div>
   </div>
 
+  <div id="notificationsView" class="hidden">
+    <div class="sectionhead"><h2>New releases</h2><button type="button" id="readNotifications">mark all read</button></div>
+    <p class="hint">New albums, EPs and singles from your tracked artists. Upcoming releases get a reminder on their release date when the exact day is known.</p>
+    <div id="notificationsList"></div>
+    <p class="hint">Showing the latest 200 notifications. Configure automatic dump downloads in <a href="#settings">settings</a>.</p>
+  </div>
+
+  <div id="settingsView" class="hidden">
+    <div class="sectionhead"><h2>Release checks</h2></div>
+    <p class="hint">Check your tracked artists for new music using MusicBrainz dumps. New dumps are published on Wednesdays and Saturdays; checking the following day gives them time to finish.</p>
+    <form id="dumpSchedule" class="settings">
+      <label><input type="checkbox" id="dumpEnabled"> Download dumps automatically</label>
+      <label>How often
+        <select id="dumpFrequency">
+          <option value="custom">Selected weekdays</option>
+          <option value="daily">Every day</option>
+        </select>
+      </label>
+      <fieldset id="dumpDays"><legend>Download on</legend><div class="weekdays">
+        <label><input type="checkbox" value="1"> Mon</label>
+        <label><input type="checkbox" value="2"> Tue</label>
+        <label><input type="checkbox" value="3"> Wed</label>
+        <label><input type="checkbox" value="4"> Thu</label>
+        <label><input type="checkbox" value="5"> Fri</label>
+        <label><input type="checkbox" value="6"> Sat</label>
+        <label><input type="checkbox" value="0"> Sun</label>
+      </div></fieldset>
+      <label>At <input type="time" id="dumpTime" required></label>
+      <label>Timezone <input type="text" id="dumpTimezone" list="timezones" placeholder="Europe/Berlin" required></label>
+      <datalist id="timezones"><option value="Local">Server timezone</option><option value="UTC"></option></datalist>
+      <p class="hint">Use a named timezone such as Europe/Berlin to follow daylight saving time. “Local” uses the server's timezone. A time skipped by the spring clock change is skipped that day.</p>
+      <div class="actions">
+        <button type="submit" class="pill on" id="saveDumpSchedule">save schedule</button>
+        <button type="button" class="pill" id="checkDump">check now</button>
+      </div>
+    </form>
+    <p id="dumpMessage" class="note" role="status"></p>
+    <div id="dumpStatus" class="hint" aria-live="polite"></div>
+    <p class="hint">The first scan for each artist establishes a baseline silently. Later scans notify about upcoming releases and releases from the last 30 days; older additions and undated entries still update the discography. Each new dump is about 1 GB. Downloads are skipped when that version has already been processed, unless newly tracked artists need a baseline.</p>
+    <p class="hint">Dropwatch must be running to download. If it misses a scheduled check while stopped, it checks once on the next start. Failed downloads retry at the next scheduled time, or with “check now”. Turning off automatic checks lets an active check finish.</p>
+  </div>
+
   <!-- ===== artist detail ===== -->
   <div id="artistView" class="hidden">
     <div class="crumbs"><button id="back">← back</button></div>
@@ -226,7 +289,7 @@ function el(tag, cls, text) {
 
 /* ---------- view switching ---------- */
 
-const VIEWS = ["artists", "library", "lookup"];
+const VIEWS = ["artists", "library", "lookup", "notifications", "settings"];
 let currentView = "artists";
 let lastListView = "artists"; // where "back" from an artist page returns to
 
@@ -261,6 +324,8 @@ function route() {
   render(VIEWS.includes(hash) ? hash : "artists");
   if (currentView === "artists") loadArtists();
   if (currentView === "library") loadLibrary();
+  if (currentView === "notifications") loadNotifications();
+  if (currentView === "settings") loadDumpSettings();
 }
 window.addEventListener("hashchange", route);
 
@@ -713,6 +778,149 @@ api("/api/config").then(c => {
   poll(); // resume progress display if a sync is already running
 }).catch(() => {});
 
+/* ---------- scheduled release discovery ---------- */
+
+let dumpSettingsLoaded = false;
+let dumpSettingsDirty = false;
+let dumpRequestPending = false;
+$("dumpSchedule").oninput = () => { dumpSettingsDirty = true; };
+$("dumpFrequency").onchange = () => {
+  const daily = $("dumpFrequency").value === "daily";
+  $("dumpDays").disabled = daily;
+  if (daily) document.querySelectorAll("#dumpDays input").forEach(c => { c.checked = true; });
+};
+if (Intl.supportedValuesOf) {
+  for (const zone of Intl.supportedValuesOf("timeZone")) {
+    const option = el("option");
+    option.value = zone;
+    $("timezones").appendChild(option);
+  }
+}
+
+function dumpTime(value) {
+  if (!value || value.startsWith("0001-")) return "never";
+  return new Date(value).toLocaleString();
+}
+
+function renderDumpStatus(data) {
+  const st = data.status;
+  $("checkDump").disabled = st.running || dumpRequestPending;
+  $("checkDump").textContent = st.running ? "checking…" : "check now";
+  const status = $("dumpStatus");
+  status.replaceChildren();
+  status.appendChild(el("p", "", data.schedule.enabled
+    ? `Next check: ${dumpTime(data.nextRun)} (shown in your browser's timezone).`
+    : "Automatic downloads are off."));
+  let progress = st.phase;
+  if (st.phase === "downloading") {
+    const mib = n => (n / 1048576).toFixed(0) + " MiB";
+    progress += `: ${mib(st.bytes)}` + (st.totalBytes > 0 ? ` / ${mib(st.totalBytes)}` : "");
+  } else if (st.phase === "scanning") {
+    progress += `: ${st.records.toLocaleString()} release groups`;
+  }
+  if (st.running) status.appendChild(el("p", "", progress));
+  status.appendChild(el("p", "", `Last attempt: ${dumpTime(st.lastAttempt)}. Last successful check: ${dumpTime(st.lastSuccess)}.`));
+  if (st.version) status.appendChild(el("p", "", `Processed dump: ${st.version}.`));
+  if (st.lastError) status.appendChild(el("p", "", "Last check failed: " + st.lastError));
+}
+
+async function loadDumpSettings() {
+  try {
+    const data = await api("/api/dumps");
+    if (!dumpSettingsLoaded || !dumpSettingsDirty) {
+      $("dumpEnabled").checked = data.schedule.enabled;
+      $("dumpTime").value = data.schedule.time;
+      $("dumpTimezone").value = data.schedule.timezone;
+      document.querySelectorAll("#dumpDays input").forEach(c => {
+        c.checked = data.schedule.days.includes(Number(c.value));
+      });
+      const daily = data.schedule.days.length === 7;
+      $("dumpFrequency").value = daily ? "daily" : "custom";
+      $("dumpDays").disabled = daily;
+      dumpSettingsLoaded = true;
+    }
+    renderDumpStatus(data);
+  } catch (err) {
+    $("dumpMessage").textContent = err.message;
+  }
+}
+
+$("dumpSchedule").onsubmit = async e => {
+  e.preventDefault();
+  const button = $("saveDumpSchedule");
+  button.disabled = true;
+  try {
+    const data = await api("/api/dumps/schedule", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: $("dumpEnabled").checked,
+        days: Array.from(document.querySelectorAll("#dumpDays input:checked"), c => Number(c.value)),
+        time: $("dumpTime").value, timezone: $("dumpTimezone").value.trim(),
+      }),
+    });
+    dumpSettingsDirty = false;
+    renderDumpStatus(data);
+    $("dumpMessage").textContent = "Schedule saved.";
+  } catch (err) {
+    $("dumpMessage").textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+};
+
+$("checkDump").onclick = async () => {
+  dumpRequestPending = true;
+  $("checkDump").disabled = true;
+  try {
+    const data = await api("/api/dumps/check", { method: "POST" });
+    $("dumpMessage").textContent = "Check started. You can leave this page while it runs.";
+    renderDumpStatus(data);
+  } catch (err) {
+    $("dumpMessage").textContent = err.message;
+  } finally {
+    dumpRequestPending = false;
+    await loadDumpSettings();
+  }
+};
+
+async function loadNotifications() {
+  try {
+    const data = await api("/api/notifications");
+    $("notificationsTab").textContent = data.unread ? `notifications (${data.unread})` : "notifications";
+    $("readNotifications").disabled = data.unread === 0;
+    const list = $("notificationsList");
+    list.replaceChildren();
+    if (!data.notifications.length) {
+      list.appendChild(el("p", "empty", "No new releases yet. Enable scheduled checks in settings, or run your first check now."));
+    }
+    const labels = { new: "New release", upcoming: "Upcoming", released: "Release day" };
+    for (const n of data.notifications) {
+      const row = el("article", "notification" + (n.unread ? " unread" : ""));
+      const title = el("button", "", `${n.artistName} — ${n.title}`);
+      title.type = "button";
+      title.onclick = () => openArtist({ id: n.artistId, name: n.artistName });
+      row.append(title, el("p", "detail", `${labels[n.kind] || n.kind} · ${n.releaseDate}`));
+      list.appendChild(row);
+    }
+  } catch (err) {
+    if (currentView === "notifications") $("notificationsList").textContent = "Could not load notifications: " + err.message;
+  }
+}
+
+$("readNotifications").onclick = async () => {
+  try {
+    await api("/api/notifications/read", { method: "POST" });
+    await loadNotifications();
+  } catch (err) {
+    $("notificationsList").textContent = err.message;
+  }
+};
+
+setInterval(() => {
+  if (!document.hidden && currentView === "settings") loadDumpSettings();
+}, 5000);
+setInterval(() => { if (!document.hidden) loadNotifications(); }, 60000);
+loadNotifications();
 route();
 </script>
 </body>

@@ -24,6 +24,7 @@ lose the extras:
 | `-subsonic` / `SUBSONIC_URL` + `SUBSONIC_USER`, `SUBSONIC_PASSWORD` | syncing from Navidrome, gonic, Airsonic, … |
 | `-discogs-token` / `DISCOGS_TOKEN` | Discogs as a second source — catches vinyl-only and obscure releases. Free token: discogs.com/settings/developers → "Generate new token". |
 | `-db`, `-addr` | database path and listen address. |
+| `-dump-dir` | temporary download directory for scheduled release checks; defaults to `<db path>.dumps`. |
 
 ## Getting your library in
 
@@ -65,11 +66,51 @@ syncs with "only new artists" checked are near-instant.
   for albums / EPs / other.
 - **lookup** — search MusicBrainz to start tracking an artist you don't have
   locally yet. This is the only place that searches the outside world.
+- **notifications** — new and upcoming releases, with an unread count and
+  release-day reminders.
+- **settings** — automatic dump downloads: selected weekdays (or every day),
+  time of day, and timezone. Includes the next check, progress, errors, and
+  a **check now** button.
 
 On an artist page you can mark any release owned or ignored, show variants
 (live albums, compilations), re-fetch from the sources, sync just this one
 artist from your player, or untrack the artist. Anything you own is always
 visible, whatever the filters say.
+
+## Scheduled release notifications
+
+Open **settings**, enable automatic downloads, choose the days and time,
+and save. For example, select **Thursday and Sunday at 04:00** in
+**Europe/Berlin**. MusicBrainz [publishes JSON dumps twice a week](https://metabrainz.org/datasets/postgres-dumps),
+on Wednesdays and Saturdays; the following morning leaves time for publication.
+Automatic downloads are off until enabled. Settings persist in the database.
+
+Only `release-group.tar.xz` is downloaded (about 1 GB). Dropwatch checks the
+published version first and skips an already processed dump, unless newly
+tracked artists need their first scan. It verifies the SHA-256 checksum,
+streams the dump with `tar` and `xz`, and removes the temporary download
+afterward. Allow space for one compressed dump in `-dump-dir`.
+
+Each artist's first successful scan establishes a silent baseline. Subsequent
+scans notify about new canonical albums, EPs and singles released within the
+last 30 days or due in the future. Older additions and undated records still
+update the discography but do not produce notifications. A known upcoming
+release with an exact date gets a release-day reminder at midnight in the
+configured timezone, including upcoming releases in the initial baseline.
+Partial dates never invent a release day. Notifications appear in the web UI;
+no email or external push service is required or contacted.
+
+The updater matches artists by MusicBrainz ID, preserves ownership, aliases
+and Discogs metadata, and commits only complete scans. Reprocessing the same
+dump does not duplicate notifications. While scheduling is enabled, artists
+with a dump baseline use cached discographies when opened; **refresh sources**
+still explicitly fetches live data.
+
+Dropwatch must be running at the scheduled time. A missed run is caught up
+once on startup; failed checks retry at the next scheduled time or via
+**check now**. An active check finishes if scheduling is disabled. Named
+timezones follow daylight saving time; a nonexistent spring-transition time
+is skipped and an autumn overlap runs once. `Local` means the server's timezone.
 
 ## Using it from scripts
 
@@ -88,6 +129,11 @@ POST /api/sync/mpd                       pull from MPD (background job)
 POST /api/sync/subsonic                  pull from Subsonic (background job)
        ?artist=name  ?exact=1  ?skip_existing=1
 GET  /api/sync/status                    progress of the running sync
+GET  /api/dumps                          dump schedule and download status
+PUT  /api/dumps/schedule                 {"enabled":true,"days":[0,4],"time":"04:00","timezone":"Europe/Berlin"}
+POST /api/dumps/check                    check/download the latest dump now
+GET  /api/notifications                  latest 200 notifications and unread count
+POST /api/notifications/read             mark all currently due notifications read
 ```
 
 Find missing albums from a script:

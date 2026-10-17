@@ -28,6 +28,9 @@ func Open(path string) (*Store, error) {
 	if err := migrate(db); err != nil {
 		return nil, err
 	}
+	if _, err := db.Exec(watchSchema); err != nil {
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 
@@ -102,6 +105,12 @@ CREATE TABLE IF NOT EXISTS release_aliases (
 	PRIMARY KEY (artist_id, rg_id, norm_title, release_mbid)
 );
 CREATE INDEX IF NOT EXISTS idx_alias_artist ON release_aliases(artist_id);
+CREATE TABLE IF NOT EXISTS artist_aliases (
+	artist_id TEXT NOT NULL,
+	norm_name TEXT NOT NULL,
+	PRIMARY KEY (artist_id, norm_name)
+);
+CREATE INDEX IF NOT EXISTS idx_artist_alias_name ON artist_aliases(norm_name);
 `
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -152,15 +161,53 @@ func (s *Store) Artists() ([]model.ArtistSummary, error) {
 	return out, rows.Err()
 }
 
-// ArtistByName finds a tracked artist by exact name, case-insensitively.
+// ArtistByName finds a tracked artist by name: exact match first, then the
+// artist-alias table (registered MusicBrainz aliases and credited-name forms
+// like "Star Anna and the Laughing Dogs" for the artist "Star Anna"),
+// matched by normalized name.
 func (s *Store) ArtistByName(name string) (model.Artist, bool, error) {
 	var a model.Artist
 	err := s.db.QueryRow(`SELECT id, name, sort_name, disambiguation, country, discogs_id FROM artists WHERE name = ? COLLATE NOCASE`, name).
+		Scan(&a.ID, &a.Name, &a.SortName, &a.Disambiguation, &a.Country, &a.DiscogsID)
+	if err == nil {
+		return a, true, nil
+	}
+	if err != sql.ErrNoRows {
+		return a, false, err
+	}
+	err = s.db.QueryRow(`
+		SELECT a.id, a.name, a.sort_name, a.disambiguation, a.country, a.discogs_id
+		FROM artists a JOIN artist_aliases al ON al.artist_id = a.id
+		WHERE al.norm_name = ? LIMIT 1`, model.NormalizeArtistName(name)).
 		Scan(&a.ID, &a.Name, &a.SortName, &a.Disambiguation, &a.Country, &a.DiscogsID)
 	if err == sql.ErrNoRows {
 		return a, false, nil
 	}
 	return a, err == nil, err
+}
+
+// SaveArtistAliases replaces the artist's name aliases (stored normalized).
+// The artist's own name is always included so punctuation/prefix variants of
+// it resolve too.
+func (s *Store) SaveArtistAliases(artistID, artistName string, names []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM artist_aliases WHERE artist_id = ?`, artistID); err != nil {
+		return err
+	}
+	for _, n := range append(names, artistName) {
+		norm := model.NormalizeArtistName(n)
+		if norm == "" {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO artist_aliases (artist_id, norm_name) VALUES (?, ?)`, artistID, norm); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Artist(id string) (model.Artist, bool, error) {
@@ -392,10 +439,18 @@ func (s *Store) DeleteArtist(id string) (bool, error) {
 		return false, err
 	}
 	defer tx.Rollback()
+	for _, table := range []string{"dump_seen", "dump_baselines", "release_notifications"} {
+		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE artist_id = ?`, id); err != nil {
+			return false, err
+		}
+	}
 	if _, err := tx.Exec(`DELETE FROM release_groups WHERE artist_id = ?`, id); err != nil {
 		return false, err
 	}
 	if _, err := tx.Exec(`DELETE FROM release_aliases WHERE artist_id = ?`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`DELETE FROM artist_aliases WHERE artist_id = ?`, id); err != nil {
 		return false, err
 	}
 	res, err := tx.Exec(`DELETE FROM artists WHERE id = ?`, id)

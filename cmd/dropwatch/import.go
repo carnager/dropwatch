@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 
 	"dropwatch/internal/model"
@@ -161,6 +160,10 @@ func runImport(args []string) {
 			}
 			if key := normalizeName(credit.Artist.Name); libByNorm[key] != nil {
 				record(credit.Artist.ID, credit.Artist.Name, credit.Artist.SortName, key, rg)
+			} else if key := normalizeName(credit.Name); credit.Name != "" && libByNorm[key] != nil {
+				// Credited form differs from the artist's name ("Star Anna
+				// and the Laughing Dogs" crediting "Star Anna").
+				record(credit.Artist.ID, credit.Artist.Name, credit.Artist.SortName, key, rg)
 			}
 		}
 		// Joint credits ("Simon & Garfunkel" as two artists): match the full
@@ -310,6 +313,9 @@ func runImport(args []string) {
 		}
 		if err := st.SaveReleaseGroups(c.artist.ID, c.groups); err != nil {
 			log.Fatalf("save release groups for %s: %v", c.artist.Name, err)
+		}
+		if err := st.SaveArtistAliases(c.artist.ID, c.artist.Name, []string{lib.name}); err != nil {
+			log.Fatalf("save artist aliases for %s: %v", c.artist.Name, err)
 		}
 		if len(rgAliases) > 0 {
 			var rows []store.Alias
@@ -466,16 +472,4 @@ func (s *dumpScanner) Err() error {
 	return s.err
 }
 
-var nameNonAlnum = regexp.MustCompile(`[^a-z0-9 ]+`)
-
-// normalizeName reduces an artist name to a comparison key. Both the library
-// tags and the dump's credit names go through this, so it only has to be
-// consistent, not perfect.
-func normalizeName(name string) string {
-	n := strings.ToLower(name)
-	n = strings.NewReplacer("&", " and ", "+", " and ").Replace(n)
-	n = nameNonAlnum.ReplaceAllString(n, " ")
-	n = strings.Join(strings.Fields(n), " ")
-	n = strings.TrimPrefix(n, "the ")
-	return n
-}
+func normalizeName(name string) string { return model.NormalizeArtistName(name) }

@@ -100,6 +100,18 @@ var (
 	spaces   = regexp.MustCompile(`\s+`)
 )
 
+// NormalizeArtistName reduces an artist name to a comparison key: case and
+// punctuation folded, "&" and "+" read as "and", a leading "The" dropped.
+// Library tags, MusicBrainz names, credit phrases and aliases all go through
+// this, so it only has to be consistent, not perfect.
+func NormalizeArtistName(name string) string {
+	n := strings.ToLower(name)
+	n = strings.NewReplacer("&", " and ", "+", " and ").Replace(n)
+	n = nonAlnum.ReplaceAllString(n, " ")
+	n = strings.Join(strings.Fields(n), " ")
+	return strings.TrimPrefix(n, "the ")
+}
+
 // NormalizeTitleLight folds case, punctuation and whitespace but strips
 // nothing else. Used for release-title aliases, where the edition suffix IS
 // the signal: "Aaliyah Edition 2004" must meet "Aaliyah: Edition 2004".

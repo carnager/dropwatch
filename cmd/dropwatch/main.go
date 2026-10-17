@@ -3,25 +3,39 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"dropwatch/internal/server"
 	"dropwatch/internal/sources"
 	"dropwatch/internal/store"
 	"dropwatch/internal/subsonic"
+	"dropwatch/internal/watch"
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "import" {
 		runImport(os.Args[2:])
-		return
+		return nil
 	}
 	addr := flag.String("addr", ":8080", "listen address")
 	dbPath := flag.String("db", "dropwatch.db", "path to SQLite database")
+	dumpDir := flag.String("dump-dir", "", "temporary dump download directory (default: <db path>.dumps)")
 	mpdAddr := flag.String("mpd", os.Getenv("MPD_HOST"), "MPD server address (host[:port]) for /api/sync/mpd; also read from MPD_HOST")
 	discogsToken := flag.String("discogs-token", os.Getenv("DISCOGS_TOKEN"), "Discogs personal access token; also read from DISCOGS_TOKEN")
 	subsonicURL := flag.String("subsonic", os.Getenv("SUBSONIC_URL"), "Subsonic-compatible server URL for /api/sync/subsonic; also read from SUBSONIC_URL (credentials via SUBSONIC_USER/SUBSONIC_PASSWORD)")
@@ -31,7 +45,7 @@ func main() {
 
 	st, err := store.Open(*dbPath)
 	if err != nil {
-		log.Fatalf("open database: %v", err)
+		return fmt.Errorf("open database: %w", err)
 	}
 	defer st.Close()
 
@@ -58,13 +72,37 @@ func main() {
 	if *subsonicURL != "" {
 		user, pass := os.Getenv("SUBSONIC_USER"), os.Getenv("SUBSONIC_PASSWORD")
 		if user == "" || pass == "" {
-			log.Fatal("-subsonic requires SUBSONIC_USER and SUBSONIC_PASSWORD env vars")
+			return fmt.Errorf("-subsonic requires SUBSONIC_USER and SUBSONIC_PASSWORD env vars")
 		}
 		srv.SetSubsonic(subsonic.New(*subsonicURL, user, pass))
 		log.Printf("subsonic sync enabled against %s", *subsonicURL)
 	}
-	log.Printf("dropwatch listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, srv.Handler()); err != nil {
-		log.Fatal(err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if *dumpDir == "" {
+		*dumpDir = *dbPath + ".dumps"
 	}
+	watcher, err := watch.New(st, *dumpDir, userAgent)
+	if err != nil {
+		return fmt.Errorf("start dump watcher: %w", err)
+	}
+	defer watcher.Close()
+	srv.SetWatcher(watcher)
+	log.Printf("dropwatch listening on %s", *addr)
+	httpServer := &http.Server{Addr: *addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- httpServer.ListenAndServe() }()
+	select {
+	case err := <-serveErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("HTTP server: %w", err)
+		}
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("HTTP shutdown: %w", err)
+		}
+	}
+	return nil
 }

@@ -4,3 +4,4 @@ release-group
 release-group.tar.xz
 release.tar.xz
 /release
+*.db.dumps/

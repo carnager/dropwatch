@@ -110,10 +110,14 @@ func (m *MusicBrainz) searchArtists(ctx context.Context, query string) ([]model.
 	return artists, nil
 }
 
-// ReleaseGroups fetches all release groups for an artist MBID, paging as needed.
-func (m *MusicBrainz) ReleaseGroups(ctx context.Context, artistMBID string) ([]model.ReleaseGroup, error) {
+// ReleaseGroups fetches all release groups for an artist MBID, paging as
+// needed. It also returns the distinct credited-name forms seen on those
+// groups — "Star Anna and the Laughing Dogs" for the artist "Star Anna" —
+// which callers store as artist name aliases.
+func (m *MusicBrainz) ReleaseGroups(ctx context.Context, artistMBID string) ([]model.ReleaseGroup, []string, error) {
 	const pageSize = 100
 	var groups []model.ReleaseGroup
+	creditSet := map[string]bool{}
 	for offset := 0; ; offset += pageSize {
 		var res struct {
 			Count         int `json:"release-group-count"`
@@ -123,17 +127,36 @@ func (m *MusicBrainz) ReleaseGroups(ctx context.Context, artistMBID string) ([]m
 				PrimaryType      string   `json:"primary-type"`
 				SecondaryTypes   []string `json:"secondary-types"`
 				FirstReleaseDate string   `json:"first-release-date"`
+				ArtistCredit     []struct {
+					Name       string `json:"name"`
+					JoinPhrase string `json:"joinphrase"`
+					Artist     struct {
+						ID string `json:"id"`
+					} `json:"artist"`
+				} `json:"artist-credit"`
 			} `json:"release-groups"`
 		}
 		params := url.Values{
 			"artist": {artistMBID},
+			"inc":    {"artist-credits"},
 			"limit":  {fmt.Sprint(pageSize)},
 			"offset": {fmt.Sprint(offset)},
 		}
 		if err := m.get(ctx, "release-group", params, &res); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, rg := range res.ReleaseGroups {
+			var full strings.Builder
+			for _, c := range rg.ArtistCredit {
+				full.WriteString(c.Name)
+				full.WriteString(c.JoinPhrase)
+				if c.Artist.ID == artistMBID && c.Name != "" {
+					creditSet[c.Name] = true
+				}
+			}
+			if s := full.String(); s != "" {
+				creditSet[s] = true
+			}
 			pt := rg.PrimaryType
 			if pt == "" {
 				pt = "Other"
@@ -154,7 +177,11 @@ func (m *MusicBrainz) ReleaseGroups(ctx context.Context, artistMBID string) ([]m
 			break
 		}
 	}
-	return groups, nil
+	credits := make([]string, 0, len(creditSet))
+	for name := range creditSet {
+		credits = append(credits, name)
+	}
+	return groups, credits, nil
 }
 
 // ReleaseAlias links one release title (and its release MBID) to its release
@@ -206,25 +233,29 @@ func (m *MusicBrainz) ReleaseAliases(ctx context.Context, artistMBID string) ([]
 }
 
 // LookupArtist fetches an artist directly by MBID (canonical, unlike search,
-// which depends on the search indexer). It also returns the linked Discogs
-// artist ID from the URL relations, or 0 when none is linked.
-func (m *MusicBrainz) LookupArtist(ctx context.Context, artistMBID string) (model.Artist, int64, error) {
+// which depends on the search indexer). It also returns the artist's
+// registered name aliases and the linked Discogs artist ID from the URL
+// relations (0 when none is linked).
+func (m *MusicBrainz) LookupArtist(ctx context.Context, artistMBID string) (model.Artist, []string, int64, error) {
 	var res struct {
 		ID             string `json:"id"`
 		Name           string `json:"name"`
 		SortName       string `json:"sort-name"`
 		Disambiguation string `json:"disambiguation"`
 		Country        string `json:"country"`
-		Relations      []struct {
+		Aliases        []struct {
+			Name string `json:"name"`
+		} `json:"aliases"`
+		Relations []struct {
 			Type string `json:"type"`
 			URL  struct {
 				Resource string `json:"resource"`
 			} `json:"url"`
 		} `json:"relations"`
 	}
-	params := url.Values{"inc": {"url-rels"}}
+	params := url.Values{"inc": {"url-rels aliases"}}
 	if err := m.get(ctx, "artist/"+artistMBID, params, &res); err != nil {
-		return model.Artist{}, 0, err
+		return model.Artist{}, nil, 0, err
 	}
 	artist := model.Artist{
 		ID:             res.ID,
@@ -233,6 +264,13 @@ func (m *MusicBrainz) LookupArtist(ctx context.Context, artistMBID string) (mode
 		Disambiguation: res.Disambiguation,
 		Country:        res.Country,
 	}
+	var aliases []string
+	for _, a := range res.Aliases {
+		if a.Name != "" {
+			aliases = append(aliases, a.Name)
+		}
+	}
+	var discogsID int64
 	for _, rel := range res.Relations {
 		if rel.Type != "discogs" {
 			continue
@@ -241,8 +279,9 @@ func (m *MusicBrainz) LookupArtist(ctx context.Context, artistMBID string) (mode
 		parts := strings.Split(strings.TrimRight(rel.URL.Resource, "/"), "/")
 		var id int64
 		if _, err := fmt.Sscanf(parts[len(parts)-1], "%d", &id); err == nil && id > 0 {
-			return artist, id, nil
+			discogsID = id
+			break
 		}
 	}
-	return artist, 0, nil
+	return artist, aliases, discogsID, nil
 }

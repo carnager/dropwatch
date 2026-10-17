@@ -17,6 +17,7 @@ import (
 	"dropwatch/internal/sources"
 	"dropwatch/internal/store"
 	"dropwatch/internal/subsonic"
+	"dropwatch/internal/watch"
 )
 
 //go:embed web
@@ -31,6 +32,7 @@ type Server struct {
 	mpdPassword string
 
 	subsonic *subsonic.Client // nil when not configured
+	watcher  *watch.Watcher
 
 	jobMu sync.Mutex
 	job   *mpdJob // current or most recent background library sync
@@ -42,6 +44,8 @@ func New(st *store.Store, mb *sources.MusicBrainz, dc *sources.Discogs) *Server 
 
 // SetSubsonic configures the Subsonic server used by /api/sync/subsonic.
 func (s *Server) SetSubsonic(c *subsonic.Client) { s.subsonic = c }
+
+func (s *Server) SetWatcher(w *watch.Watcher) { s.watcher = w }
 
 // SetMPD configures the MPD server used by /api/sync/mpd.
 func (s *Server) SetMPD(addr, password string) {
@@ -71,6 +75,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sync/mpd", s.handleSyncMPD)
 	mux.HandleFunc("POST /api/sync/subsonic", s.handleSyncSubsonic)
 	mux.HandleFunc("GET /api/sync/status", s.handleSyncStatus)
+	mux.HandleFunc("GET /api/dumps", s.handleDumpStatus)
+	mux.HandleFunc("PUT /api/dumps/schedule", s.handleDumpSchedule)
+	mux.HandleFunc("POST /api/dumps/check", s.handleDumpCheck)
+	mux.HandleFunc("GET /api/notifications", s.handleNotifications)
+	mux.HandleFunc("POST /api/notifications/read", s.handleReadNotifications)
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]bool{
 			"mpd":      s.mpdAddr != "",
@@ -144,6 +153,16 @@ func (s *Server) handleArtistReleases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stale := time.Since(lastChecked) > s.maxAge
+	// Scheduled snapshots keep tracked discographies fresh without browsing
+	// the inbox triggering a costly full API refresh for every artist.
+	if stale && s.watcher != nil && s.watcher.View().Schedule.Enabled {
+		baseline, err := s.store.HasDumpBaseline(id)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		stale = !baseline
+	}
 
 	var artist model.Artist
 	if refresh || stale {
@@ -206,9 +225,9 @@ func (s *Server) fetchAndStore(ctx context.Context, mbid string) (model.Artist, 
 	if err != nil {
 		return stored, err
 	}
-	// Direct lookup is canonical and also yields the Discogs link. It heals
-	// rows that were saved with the MBID as name by older code.
-	artist, linkedDiscogsID, err := s.mb.LookupArtist(ctx, mbid)
+	// Direct lookup is canonical and also yields the Discogs link and the
+	// artist's registered name aliases.
+	artist, nameAliases, linkedDiscogsID, err := s.mb.LookupArtist(ctx, mbid)
 	if err != nil {
 		return stored, err
 	}
@@ -217,9 +236,15 @@ func (s *Server) fetchAndStore(ctx context.Context, mbid string) (model.Artist, 
 	} else {
 		artist.DiscogsID = linkedDiscogsID
 	}
-	mbGroups, err := s.mb.ReleaseGroups(ctx, mbid)
+	mbGroups, creditNames, err := s.mb.ReleaseGroups(ctx, mbid)
 	if err != nil {
 		return artist, err
+	}
+	// Credited-name forms ("Star Anna and the Laughing Dogs") plus registered
+	// aliases let library tags in any of those spellings resolve to this
+	// artist without a MusicBrainz search.
+	if err := s.store.SaveArtistAliases(mbid, artist.Name, append(nameAliases, creditNames...)); err != nil {
+		log.Printf("saving artist aliases for %s: %v", artist.Name, err)
 	}
 
 	var dcGroups []model.ReleaseGroup
