@@ -133,36 +133,39 @@ match exactly. Turn it on in settings → musicbrainz.
 Create a token under settings → account and send it as a bearer token. IDs
 are MusicBrainz IDs.
 
-```
-GET    /api/search/artists?q=name        search MusicBrainz
-GET    /api/artists                      tracked artists with counts
-GET    /api/artists/{id}/releases        ?missing=only  ?types=all  ?refresh=1
-DELETE /api/artists/{id}                 untrack
-GET    /api/library                      everything owned
-PUT    /api/releases/{id}/state          {"state": "owned" | "ignored" | ""}
-POST   /api/sync                         push a library as JSON
-POST   /api/sync/library                 sync enabled sources  ?artist=  ?exact=1  ?skip_existing=1
-GET    /api/sync/status
-GET    /api/notifications                ?types=Album,EP,Single
-POST   /api/notifications/read           all (same ?types=)
-POST   /api/notifications/{id}/read
-GET    /api/dumps                        schedules and download status
-PUT    /api/dumps/schedule               {"enabled":true,"days":[0,4],"time":"04:00","timezone":"Europe/Berlin"}
-POST   /api/dumps/check
-PUT    /api/dumps/releases               {"enabled":true,"intervalDays":30}
-POST   /api/dumps/releases/check
-GET    /api/settings                     PUT to change; secrets are write-only
-```
+| Method | Path | |
+|---|---|---|
+| GET | `/api/search/artists?q=name` | search MusicBrainz |
+| GET | `/api/artists` | tracked artists with counts |
+| GET | `/api/artists/{id}/releases` | `?missing=only`, `?types=all`, `?refresh=1` |
+| DELETE | `/api/artists/{id}` | untrack |
+| GET | `/api/library` | everything owned |
+| PUT | `/api/releases/{id}/state` | `{"state": "owned"}`, `"ignored"` or `""` |
+| POST | `/api/sync` | push a library as JSON, see below |
+| POST | `/api/sync/library` | sync enabled sources; `?artist=`, `?exact=1`, `?skip_existing=1` |
+| GET | `/api/sync/status` | progress of the running sync |
+| GET | `/api/notifications` | `?types=Album,EP,Single` |
+| POST | `/api/notifications/read` | mark all read, same `?types=` |
+| POST | `/api/notifications/{id}/read` | mark one read |
+| GET | `/api/dumps` | schedules and download status |
+| PUT | `/api/dumps/schedule` | `{"enabled": true, "days": [0, 4], "time": "04:00", "timezone": "Europe/Berlin"}` |
+| POST | `/api/dumps/check` | check for a new release-group dump |
+| PUT | `/api/dumps/releases` | `{"enabled": true, "intervalDays": 30}` |
+| POST | `/api/dumps/releases/check` | download release titles |
+| GET, PUT | `/api/settings` | sources and Discogs; secrets are write-only |
 
 ```sh
 auth="Authorization: Bearer $TOKEN"
-mbid=$(curl -s -H "$auth" "localhost:8080/api/search/artists?q=boards+of+canada" | jq -r '.artists[0].id')
-curl -s -H "$auth" "localhost:8080/api/artists/$mbid/releases?missing=only" \
+mbid=$(curl -s -H "$auth" \
+  "localhost:8080/api/search/artists?q=boards+of+canada" \
+  | jq -r '.artists[0].id')
+curl -s -H "$auth" \
+  "localhost:8080/api/artists/$mbid/releases?missing=only" \
   | jq -r '.releases[] | "\(.firstReleaseDate[:4]) \(.title)"'
 ```
 
-`POST /api/sync` takes `{"artists": [{"name": "...", "albums": ["...", ...]}]}`;
-an album can also be `{"title": "...", "mbid": "<release group id>"}`.
+`POST /api/sync` takes `{"artists": [{"name": "...", "albums": ["...", ...]}]}`.
+An album can also be `{"title": "...", "mbid": "<release group id>"}`.
 
 ## Flags
 
