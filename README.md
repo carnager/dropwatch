@@ -10,10 +10,17 @@ told you're "missing" a record you already own in a different pressing.
 
 ## Quick start
 
+Download a Linux binary from the
+[releases page](https://github.com/carnager/dropwatch/releases), or build it
+(Go 1.27+, no C compiler needed):
+
 ```sh
 go build -o dropwatch ./cmd/dropwatch
 ./dropwatch
 ```
+
+`tar` and `xz` must be installed; dropwatch uses them to read MusicBrainz
+dumps.
 
 Open http://localhost:8080 and everything else happens in the browser:
 
@@ -180,3 +187,7 @@ don't matter — and against the title of every known *version* of each album,
 plus MusicBrainz IDs from your tags when present. If something still doesn't
 match against cached data, the sync re-fetches that artist once and tries
 again, so stale data heals itself.
+
+## License
+
+GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE).

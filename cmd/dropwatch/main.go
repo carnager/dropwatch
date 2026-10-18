@@ -23,6 +23,9 @@ import (
 	"dropwatch/internal/watch"
 )
 
+// version is set at release build time: -ldflags "-X main.version=v0.1.0".
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -43,9 +46,14 @@ func run() error {
 	discogsToken := flag.String("discogs-token", os.Getenv("DISCOGS_TOKEN"), "first start only: Discogs token; also DISCOGS_TOKEN")
 	subsonicURL := flag.String("subsonic", os.Getenv("SUBSONIC_URL"), "first start only: Subsonic URL; also SUBSONIC_URL (+ SUBSONIC_USER/SUBSONIC_PASSWORD)")
 	melodyAddr := flag.String("melody", os.Getenv("MELODY_SERVER"), "first start only: melody engine address; also MELODY_SERVER (+ MELODY_PASSWORD or MELODY_PASSWORD_FILE)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("dropwatch", version)
+		return nil
+	}
 
-	const userAgent = "dropwatch/0.1 (https://github.com/carnager/dropwatch)"
+	userAgent := "dropwatch/" + strings.TrimPrefix(version, "v") + " (https://github.com/carnager/dropwatch)"
 
 	st, err := store.Open(*dbPath)
 	if err != nil {
