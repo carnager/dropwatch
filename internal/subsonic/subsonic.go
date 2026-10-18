@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -89,7 +90,13 @@ func (c *Client) call(ctx context.Context, endpoint string, params url.Values) (
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		// The request URL carries the auth token and salt; keep it out of
+		// error messages, which reach the UI and the log.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		return nil, fmt.Errorf("subsonic: %s: %w", endpoint, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
