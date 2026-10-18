@@ -121,7 +121,10 @@ and then to refresh everything.
 
 Notifications come from the scheduled dump checks: new albums, EPs and
 singles from the last 30 days, upcoming releases, and a reminder on release
-day.
+day. They appear in the web UI and can also be pushed to
+[ntfy](https://ntfy.sh) (settings → push), either ntfy.sh or your own server,
+with an access token or user and password. Up to five arrive one by one, more
+as a single summary.
 
 Optionally, dropwatch can also process the MusicBrainz release dump (about
 21 GB, streamed and not stored). It adds the title and ID of every edition of
@@ -152,7 +155,8 @@ are MusicBrainz IDs.
 | POST | `/api/dumps/check` | check for a new release-group dump |
 | PUT | `/api/dumps/releases` | `{"enabled": true, "intervalDays": 30}` |
 | POST | `/api/dumps/releases/check` | download release titles |
-| GET, PUT | `/api/settings` | sources and Discogs; secrets are write-only |
+| GET, PUT | `/api/settings` | sources, Discogs and ntfy; secrets are write-only |
+| POST | `/api/ntfy/test` | send a test push |
 
 ```sh
 auth="Authorization: Bearer $TOKEN"

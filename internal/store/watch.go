@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS release_notifications (
 	kind TEXT NOT NULL,
 	available_at TEXT NOT NULL,
 	unread INTEGER NOT NULL DEFAULT 1,
+	pushed_at TEXT,
 	UNIQUE (rg_id, kind)
 );
 CREATE INDEX IF NOT EXISTS idx_notification_due ON release_notifications(available_at);
@@ -371,4 +372,58 @@ func (s *Store) ReadNotification(id int64) (bool, error) {
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// addPushedColumn adds release_notifications.pushed_at to databases created
+// before push notifications existed.
+func addPushedColumn(db *sql.DB) error {
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('release_notifications') WHERE name = 'pushed_at'`).Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	_, err := db.Exec(`ALTER TABLE release_notifications ADD COLUMN pushed_at TEXT`)
+	return err
+}
+
+// PendingPushes returns due notifications that haven't been pushed yet and
+// became due at or after since (when pushing was switched on), oldest first.
+// Releases already owned or ignored are left out.
+func (s *Store) PendingPushes(now, since time.Time) ([]model.ReleaseNotification, error) {
+	rows, err := s.db.Query(`SELECT n.id, n.artist_id, a.name, n.rg_id, n.title, n.release_date, n.kind, `+notificationType+`, n.unread
+		FROM release_notifications n JOIN artists a ON a.id = n.artist_id
+		WHERE n.pushed_at IS NULL AND n.available_at <= ? AND n.available_at >= ? AND `+notDismissed+`
+		ORDER BY n.available_at, n.id`, now.UTC().Format(time.RFC3339), since.UTC().Format(time.RFC3339))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.ReleaseNotification
+	for rows.Next() {
+		var n model.ReleaseNotification
+		if err := rows.Scan(&n.ID, &n.ArtistID, &n.ArtistName, &n.ReleaseID, &n.Title, &n.ReleaseDate, &n.Kind, &n.PrimaryType, &n.Unread); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// MarkPushed records that these notifications were pushed (or deliberately
+// skipped), so they are never sent again.
+func (s *Store) MarkPushed(ids []int64, now time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stamp := now.UTC().Format(time.RFC3339)
+	for _, id := range ids {
+		if _, err := tx.Exec(`UPDATE release_notifications SET pushed_at = ? WHERE id = ?`, stamp, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

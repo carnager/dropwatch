@@ -125,6 +125,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
 	mux.HandleFunc("POST /api/sources/{name}/test", s.handleTestSource)
+	mux.HandleFunc("POST /api/ntfy/test", s.handleNtfyTest)
 	mux.HandleFunc("GET /api/auth", s.handleAuthState)
 	mux.HandleFunc("POST /api/auth/setup", s.handleAuthSetup)
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)

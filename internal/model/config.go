@@ -3,7 +3,9 @@ package model
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
+	"time"
 )
 
 // Config is everything set up in the web UI. Secrets (passwords, tokens) are
@@ -13,7 +15,35 @@ type Config struct {
 	Subsonic SubsonicConfig `json:"subsonic"`
 	Melody   MelodyConfig   `json:"melody"`
 	Discogs  DiscogsConfig  `json:"discogs"`
+	Ntfy     NtfyConfig     `json:"ntfy"`
 }
+
+// NtfyConfig sends release notifications to an ntfy topic.
+type NtfyConfig struct {
+	Enabled  bool     `json:"enabled"`
+	Server   string   `json:"server"` // default https://ntfy.sh
+	Topic    string   `json:"topic"`
+	Token    string   `json:"token,omitempty"` // access token, or:
+	User     string   `json:"user,omitempty"`
+	Password string   `json:"password,omitempty"`
+	Types    []string `json:"types"`   // Album, EP, Single
+	LinkURL  string   `json:"linkUrl"` // where dropwatch is reachable, for tap-to-open
+	// Since is when pushing was switched on; earlier notifications are not
+	// pushed, so enabling ntfy doesn't send the whole backlog.
+	Since time.Time `json:"since"`
+}
+
+// NotificationTypes are the release types notifications can be filtered by.
+var NotificationTypes = []string{"Album", "EP", "Single"}
+
+func (n NtfyConfig) ServerURL() string {
+	if n.Server == "" {
+		return "https://ntfy.sh"
+	}
+	return strings.TrimRight(n.Server, "/")
+}
+
+func (n NtfyConfig) Wants(primaryType string) bool { return slices.Contains(n.Types, primaryType) }
 
 type MPDConfig struct {
 	Enabled  bool   `json:"enabled"`
@@ -60,6 +90,27 @@ func (c Config) Validate() error {
 			return fmt.Errorf("melody over the network needs its password")
 		}
 	}
+	if c.Ntfy.Enabled {
+		if c.Ntfy.Topic == "" || strings.ContainsAny(c.Ntfy.Topic, "/ ") {
+			return fmt.Errorf("ntfy needs a topic name (no slashes or spaces)")
+		}
+		if u, err := url.Parse(c.Ntfy.ServerURL()); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("the ntfy server must be an http(s) URL")
+		}
+		if len(c.Ntfy.Types) == 0 {
+			return fmt.Errorf("choose at least one release type to push")
+		}
+	}
+	for _, t := range c.Ntfy.Types {
+		if !slices.Contains(NotificationTypes, t) {
+			return fmt.Errorf("unknown release type %q", t)
+		}
+	}
+	if c.Ntfy.LinkURL != "" {
+		if u, err := url.Parse(c.Ntfy.LinkURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("the dropwatch address must be an http(s) URL")
+		}
+	}
 	return nil
 }
 
@@ -85,6 +136,16 @@ type PublicConfig struct {
 	Discogs struct {
 		TokenSet bool `json:"tokenSet"`
 	} `json:"discogs"`
+	Ntfy struct {
+		Enabled     bool     `json:"enabled"`
+		Server      string   `json:"server"`
+		Topic       string   `json:"topic"`
+		TokenSet    bool     `json:"tokenSet"`
+		User        string   `json:"user"`
+		PasswordSet bool     `json:"passwordSet"`
+		Types       []string `json:"types"`
+		LinkURL     string   `json:"linkUrl"`
+	} `json:"ntfy"`
 }
 
 func (c Config) Public() PublicConfig {
@@ -93,31 +154,49 @@ func (c Config) Public() PublicConfig {
 	p.Subsonic.Enabled, p.Subsonic.URL, p.Subsonic.User, p.Subsonic.PasswordSet = c.Subsonic.Enabled, c.Subsonic.URL, c.Subsonic.User, c.Subsonic.Password != ""
 	p.Melody.Enabled, p.Melody.Address, p.Melody.PasswordSet = c.Melody.Enabled, c.Melody.Address, c.Melody.Password != ""
 	p.Discogs.TokenSet = c.Discogs.Token != ""
+	n := c.Ntfy
+	p.Ntfy.Enabled, p.Ntfy.Server, p.Ntfy.Topic, p.Ntfy.User, p.Ntfy.LinkURL = n.Enabled, n.Server, n.Topic, n.User, n.LinkURL
+	p.Ntfy.TokenSet, p.Ntfy.PasswordSet = n.Token != "", n.Password != ""
+	p.Ntfy.Types = n.Types
+	if p.Ntfy.Types == nil {
+		p.Ntfy.Types = []string{}
+	}
 	return p
 }
 
-// ConfigUpdate is a settings form submission. A nil secret keeps the stored
-// value; an empty one clears it.
+// ConfigUpdate is a settings form submission. A section left out keeps its
+// stored values; within a section, a nil secret keeps the stored one and an
+// empty one clears it.
 type ConfigUpdate struct {
-	MPD struct {
+	MPD *struct {
 		Enabled  bool    `json:"enabled"`
 		Address  string  `json:"address"`
 		Password *string `json:"password"`
 	} `json:"mpd"`
-	Subsonic struct {
+	Subsonic *struct {
 		Enabled  bool    `json:"enabled"`
 		URL      string  `json:"url"`
 		User     string  `json:"user"`
 		Password *string `json:"password"`
 	} `json:"subsonic"`
-	Melody struct {
+	Melody *struct {
 		Enabled  bool    `json:"enabled"`
 		Address  string  `json:"address"`
 		Password *string `json:"password"`
 	} `json:"melody"`
-	Discogs struct {
+	Discogs *struct {
 		Token *string `json:"token"`
 	} `json:"discogs"`
+	Ntfy *struct {
+		Enabled  bool     `json:"enabled"`
+		Server   string   `json:"server"`
+		Topic    string   `json:"topic"`
+		Token    *string  `json:"token"`
+		User     string   `json:"user"`
+		Password *string  `json:"password"`
+		Types    []string `json:"types"`
+		LinkURL  string   `json:"linkUrl"`
+	} `json:"ntfy"`
 }
 
 // Apply merges the update into the stored config.
@@ -128,10 +207,23 @@ func (u ConfigUpdate) Apply(c Config) Config {
 		}
 		return *new // passwords may legitimately contain spaces
 	}
-	c.MPD = MPDConfig{Enabled: u.MPD.Enabled, Address: strings.TrimSpace(u.MPD.Address), Password: keep(c.MPD.Password, u.MPD.Password)}
-	c.Subsonic = SubsonicConfig{Enabled: u.Subsonic.Enabled, URL: strings.TrimSpace(u.Subsonic.URL), User: strings.TrimSpace(u.Subsonic.User),
-		Password: keep(c.Subsonic.Password, u.Subsonic.Password)}
-	c.Melody = MelodyConfig{Enabled: u.Melody.Enabled, Address: strings.TrimSpace(u.Melody.Address), Password: keep(c.Melody.Password, u.Melody.Password)}
-	c.Discogs.Token = keep(c.Discogs.Token, u.Discogs.Token)
+	if m := u.MPD; m != nil {
+		c.MPD = MPDConfig{Enabled: m.Enabled, Address: strings.TrimSpace(m.Address), Password: keep(c.MPD.Password, m.Password)}
+	}
+	if m := u.Subsonic; m != nil {
+		c.Subsonic = SubsonicConfig{Enabled: m.Enabled, URL: strings.TrimSpace(m.URL), User: strings.TrimSpace(m.User),
+			Password: keep(c.Subsonic.Password, m.Password)}
+	}
+	if m := u.Melody; m != nil {
+		c.Melody = MelodyConfig{Enabled: m.Enabled, Address: strings.TrimSpace(m.Address), Password: keep(c.Melody.Password, m.Password)}
+	}
+	if m := u.Discogs; m != nil {
+		c.Discogs.Token = keep(c.Discogs.Token, m.Token)
+	}
+	if n := u.Ntfy; n != nil {
+		c.Ntfy = NtfyConfig{Enabled: n.Enabled, Server: strings.TrimSpace(n.Server), Topic: strings.TrimSpace(n.Topic),
+			Token: keep(c.Ntfy.Token, n.Token), User: strings.TrimSpace(n.User), Password: keep(c.Ntfy.Password, n.Password),
+			Types: n.Types, LinkURL: strings.TrimRight(strings.TrimSpace(n.LinkURL), "/"), Since: c.Ntfy.Since}
+	}
 	return c
 }

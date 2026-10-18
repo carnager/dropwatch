@@ -285,6 +285,7 @@
     <div class="filters">
       <button type="button" class="pill set-tab on" data-tab="library">library</button>
       <button type="button" class="pill set-tab" data-tab="musicbrainz">musicbrainz</button>
+      <button type="button" class="pill set-tab" data-tab="push">push</button>
       <button type="button" class="pill set-tab" data-tab="account">account</button>
       <button type="button" class="pill set-tab" data-tab="about">about</button>
     </div>
@@ -381,6 +382,27 @@
         <p><b>Release titles</b> (about 21 GB) list every edition of every album. They let albums tagged with a release ID (Subsonic, melody) and reissue-titled rips match exactly. The download streams through without being stored; only titles for albums already in dropwatch are kept.</p>
         <p>Dropwatch must be running at the scheduled time; a missed check runs once on the next start, and a failed one retries at the next scheduled time. Use a named timezone such as Europe/Berlin to follow daylight saving time; “Local” is the server's timezone.</p>
       </details>
+    </section>
+
+    <section id="tab-push" class="settab hidden">
+      <form id="ntfyForm" autocomplete="off">
+        <div class="sectionhead"><h2>ntfy</h2><span class="agg" id="ntfyAgg"></span></div>
+        <label class="field"><span>Push</span><span><input type="checkbox" id="ntfyEnabled"> send new releases to ntfy</span></label>
+        <label class="field"><span>Server</span><input type="url" id="ntfyServer" placeholder="https://ntfy.sh"></label>
+        <label class="field"><span>Topic</span><input type="text" id="ntfyTopic" placeholder="a name that's hard to guess"></label>
+        <label class="field"><span>Access token</span><input type="password" id="ntfyToken"></label>
+        <label class="field"><span>User</span><input type="text" id="ntfyUser" placeholder="or log in with user and password"></label>
+        <label class="field"><span>Password</span><input type="password" id="ntfyPassword"></label>
+        <div class="field"><span>Types</span><div class="days" id="ntfyTypes"><button type="button" class="pill on" data-t="Album">albums</button><button type="button" class="pill on" data-t="EP">eps</button><button type="button" class="pill" data-t="Single">singles</button></div></div>
+        <label class="field"><span>Link to</span><input type="url" id="ntfyLink" placeholder="https://dropwatch.example (optional)"></label>
+        <div class="savebar">
+          <button type="submit" class="pill" id="saveNtfy" disabled>save</button>
+          <button type="button" id="testNtfy">send test</button>
+          <span class="note" id="ntfyMessage" role="status"></span>
+        </div>
+      </form>
+      <p class="hint">Subscribe to the topic in the ntfy app. New releases are pushed when a dump check finds them, release-day reminders at midnight; up to five come one by one, more as one summary. Releases you own or ignore are skipped. Turning this on doesn't send notifications you already have.</p>
+      <p class="hint">Anyone who knows a topic name on ntfy.sh can read it, so pick one that's hard to guess, or use your own server with an access token. With “Link to” set, tapping a push opens the release in dropwatch.</p>
     </section>
 
     <section id="tab-account" class="settab hidden">
@@ -1005,7 +1027,7 @@ async function initSyncControls() {
 
 /* ---------- settings ---------- */
 
-const SETTINGS_TABS = ["library", "musicbrainz", "account", "about"];
+const SETTINGS_TABS = ["library", "musicbrainz", "push", "account", "about"];
 let settingsTab = "library";
 
 function showSettingsTab(name) {
@@ -1014,7 +1036,7 @@ function showSettingsTab(name) {
   document.querySelectorAll(".set-tab").forEach(p => p.classList.toggle("on", p.dataset.tab === settingsTab));
   if (settingsTab === "library") loadSettings();
   if (settingsTab === "musicbrainz") loadDumpSettings();
-  if (settingsTab === "account") loadSettings();
+  if (settingsTab === "account" || settingsTab === "push") loadSettings();
   if (settingsTab === "about") {
     api("/api/config").then(c => { $("aboutVersion").textContent = c.version || "unknown"; }).catch(() => {});
   }
@@ -1035,7 +1057,7 @@ function shortTime(value) {
 const clearedSecrets = new Set();
 let sourcesDirty = false;
 
-function secretField(input, key, isSet, what) {
+function secretField(input, key, isSet, what, onChange = markSourcesDirty) {
   input.value = "";
   clearedSecrets.delete(key);
   const field = input.closest(".field");
@@ -1051,7 +1073,7 @@ function secretField(input, key, isSet, what) {
     clearedSecrets.add(key);
     input.placeholder = "removed when you save";
     note.remove();
-    markSourcesDirty();
+    onChange();
   };
   note.append(remove);
   field.after(note);
@@ -1105,7 +1127,7 @@ function renderSettings(data) {
     row.querySelector(".where").textContent = sourceSummary(name, cfg) || "not set up";
     if (cfg.enabled) {
       enabled++;
-      testSource(name);
+      if (settingsTab === "library") testSource(name);
     } else {
       setSourceState(row, "", "off");
     }
@@ -1113,6 +1135,7 @@ function renderSettings(data) {
   $("sourcesAgg").textContent = enabled ? `${enabled} enabled` : "none enabled";
   $("discogsWhere").textContent = c.discogs.tokenSet ? "saved" : "not set";
   secretField($("discogsToken"), "discogs", c.discogs.tokenSet, "token");
+  if (!ntfyDirty) renderNtfy(c.ntfy);
   $("tokenWhere").textContent = data.apiTokenSet ? "active" : "none";
   $("revokeToken").classList.toggle("hidden", !data.apiTokenSet);
   $("newToken").textContent = data.apiTokenSet ? "replace" : "create";
@@ -1191,6 +1214,77 @@ $("sourcesForm").onsubmit = async e => {
   } catch (err) {
     $("saveSources").disabled = false;
     $("sourcesMessage").textContent = err.message;
+  }
+};
+
+/* push (ntfy) */
+
+let ntfyDirty = false;
+
+function markNtfyDirty() {
+  ntfyDirty = true;
+  $("saveNtfy").disabled = false;
+  $("ntfyMessage").textContent = "unsaved changes";
+}
+
+function renderNtfy(n) {
+  $("ntfyEnabled").checked = n.enabled;
+  $("ntfyServer").value = n.server || "";
+  $("ntfyTopic").value = n.topic || "";
+  $("ntfyUser").value = n.user || "";
+  $("ntfyLink").value = n.linkUrl || "";
+  secretField($("ntfyToken"), "ntfy-token", n.tokenSet, "token", markNtfyDirty);
+  secretField($("ntfyPassword"), "ntfy-password", n.passwordSet, "password", markNtfyDirty);
+  const types = n.types.length ? n.types : ["Album", "EP"]; // default until saved
+  document.querySelectorAll("#ntfyTypes .pill").forEach(p => p.classList.toggle("on", types.includes(p.dataset.t)));
+  $("ntfyAgg").textContent = n.enabled ? `on · ${n.topic}` : "off";
+  ntfyDirty = false;
+  $("saveNtfy").disabled = true;
+}
+
+function ntfyUpdate() {
+  const secret = (key, input) => input.value !== "" ? input.value : (clearedSecrets.has(key) ? "" : undefined);
+  return { ntfy: {
+    enabled: $("ntfyEnabled").checked,
+    server: $("ntfyServer").value.trim(),
+    topic: $("ntfyTopic").value.trim(),
+    token: secret("ntfy-token", $("ntfyToken")),
+    user: $("ntfyUser").value.trim(),
+    password: secret("ntfy-password", $("ntfyPassword")),
+    types: Array.from(document.querySelectorAll("#ntfyTypes .pill.on"), p => p.dataset.t),
+    linkUrl: $("ntfyLink").value.trim(),
+  } };
+}
+
+$("ntfyForm").oninput = markNtfyDirty;
+document.querySelectorAll("#ntfyTypes .pill").forEach(p => {
+  p.onclick = () => { p.classList.toggle("on"); markNtfyDirty(); };
+});
+
+$("ntfyForm").onsubmit = async e => {
+  e.preventDefault();
+  $("saveNtfy").disabled = true;
+  try {
+    const data = await api("/api/settings", jsonBody("PUT", ntfyUpdate()));
+    ntfyDirty = false;
+    renderNtfy(data.config.ntfy);
+    $("ntfyMessage").textContent = "saved";
+  } catch (err) {
+    $("saveNtfy").disabled = false;
+    $("ntfyMessage").textContent = err.message;
+  }
+};
+
+$("testNtfy").onclick = async () => {
+  $("testNtfy").disabled = true;
+  $("ntfyMessage").textContent = "sending…";
+  try {
+    await api("/api/ntfy/test", jsonBody("POST", ntfyUpdate()));
+    $("ntfyMessage").textContent = "sent; check your ntfy app";
+  } catch (err) {
+    $("ntfyMessage").textContent = err.message;
+  } finally {
+    $("testNtfy").disabled = false;
   }
 };
 

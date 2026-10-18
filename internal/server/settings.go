@@ -39,10 +39,14 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	if !decodeOne(w, r, 16<<10, &update) {
 		return
 	}
-	cfg := update.Apply(s.config())
+	old := s.config()
+	cfg := update.Apply(old)
 	if err := cfg.Validate(); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if cfg.Ntfy.Enabled && !old.Ntfy.Enabled {
+		cfg.Ntfy.Since = time.Now() // push what becomes due from now on, not the backlog
 	}
 	if err := s.store.SaveConfig(cfg); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

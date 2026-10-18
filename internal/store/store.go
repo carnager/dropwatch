@@ -31,6 +31,9 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(watchSchema + settingsSchema); err != nil {
 		return nil, err
 	}
+	if err := addPushedColumn(db); err != nil {
+		return nil, err
+	}
 	st := &Store{db: db}
 	if err := st.dropGuestAliases(); err != nil {
 		return nil, err
