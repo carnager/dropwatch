@@ -302,7 +302,7 @@
           </div>
           <div class="fields hidden">
             <label class="field"><span>Address</span><input type="text" name="address" placeholder="localhost:6600 or a socket path"></label>
-            <label class="field"><span>Password</span><input type="password" name="password"></label>
+            <label class="field"><span>Password</span><input type="password" name="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore></label>
             <div class="field"><span></span><div class="test"><button type="button" class="pill">test connection</button></div></div>
           </div>
           <div class="progress"></div>
@@ -316,8 +316,8 @@
           </div>
           <div class="fields hidden">
             <label class="field"><span>URL</span><input type="url" name="url" placeholder="https://music.example.org"></label>
-            <label class="field"><span>User</span><input type="text" name="user"></label>
-            <label class="field"><span>Password</span><input type="password" name="password"></label>
+            <label class="field"><span>User</span><input type="text" name="user" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore></label>
+            <label class="field"><span>Password</span><input type="password" name="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore></label>
             <div class="field"><span></span><div class="test"><button type="button" class="pill">test connection</button></div></div>
           </div>
           <div class="progress"></div>
@@ -331,7 +331,7 @@
           </div>
           <div class="fields hidden">
             <label class="field"><span>Address</span><input type="text" name="address" placeholder="host:6603 or a socket path"></label>
-            <label class="field"><span>Password</span><input type="password" name="password"></label>
+            <label class="field"><span>Password</span><input type="password" name="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore></label>
             <div class="field"><span></span><div class="test"><button type="button" class="pill">test connection</button></div></div>
           </div>
           <div class="progress"></div>
@@ -344,7 +344,7 @@
             <button type="button" class="edit">edit</button>
           </div>
           <div class="fields hidden">
-            <label class="field"><span>Token</span><input type="password" id="discogsToken"></label>
+            <label class="field"><span>Token</span><input type="password" id="discogsToken" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore></label>
             <p class="hint">Optional second source for vinyl-only and obscure releases. Create a personal access token at <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">discogs.com/settings/developers</a>.</p>
           </div>
         </div>
@@ -396,9 +396,9 @@
         <label class="field"><span>Push</span><span><input type="checkbox" id="ntfyEnabled"> send new releases to ntfy</span></label>
         <label class="field"><span>Server</span><input type="url" id="ntfyServer" placeholder="https://ntfy.sh"></label>
         <label class="field"><span>Topic</span><input type="text" id="ntfyTopic" placeholder="a name that's hard to guess"></label>
-        <label class="field"><span>Access token</span><input type="password" id="ntfyToken"></label>
-        <label class="field"><span>User</span><input type="text" id="ntfyUser" placeholder="or log in with user and password"></label>
-        <label class="field"><span>Password</span><input type="password" id="ntfyPassword"></label>
+        <label class="field"><span>Access token</span><input type="password" id="ntfyToken" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore></label>
+        <label class="field"><span>User</span><input type="text" id="ntfyUser" placeholder="or log in with user and password" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore></label>
+        <label class="field"><span>Password</span><input type="password" id="ntfyPassword" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore></label>
         <div class="field"><span>Types</span><div class="days" id="ntfyTypes"><button type="button" class="pill on" data-t="Album">albums</button><button type="button" class="pill on" data-t="EP">eps</button><button type="button" class="pill" data-t="Single">singles</button></div></div>
         <label class="field"><span>Link to</span><input type="url" id="ntfyLink" placeholder="https://dropwatch.example (optional)"></label>
         <div class="savebar">
@@ -471,6 +471,19 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+
+// View preferences (sorts, filter toggles) are remembered per browser.
+function loadPref(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem("dropwatch." + key));
+    return value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function savePref(key, value) {
+  try { localStorage.setItem("dropwatch." + key, JSON.stringify(value)); } catch {}
+}
 
 async function api(path, opts = {}) {
   // The header marks requests as the app's own (the server's CSRF check).
@@ -597,15 +610,17 @@ document.addEventListener("keydown", (e) => {
 /* ---------- artists view ---------- */
 
 let allArtists = null;
-const artistsState = { filter: "", sort: "name" };
+const artistsState = { filter: "", sort: loadPref("artistsSort", "name") };
 
 $("artistFilter").oninput = () => {
   artistsState.filter = $("artistFilter").value.trim().toLowerCase();
   renderArtists();
 };
 document.querySelectorAll(".art-sort").forEach(p => {
+  p.classList.toggle("on", p.dataset.s === artistsState.sort);
   p.onclick = () => {
     artistsState.sort = p.dataset.s;
+    savePref("artistsSort", artistsState.sort);
     document.querySelectorAll(".art-sort").forEach(q => q.classList.toggle("on", q === p));
     renderArtists();
   };
@@ -673,18 +688,26 @@ function renderArtists() {
 /* ---------- library view ---------- */
 
 let library = null;
-const libState = { types: { Album: true, EP: true, other: false }, sort: "artist", filter: "" };
+const libState = {
+  types: { Album: true, EP: true, other: false, ...loadPref("libraryTypes", {}) },
+  sort: loadPref("librarySort", "artist"),
+  filter: "",
+};
 
 document.querySelectorAll(".lib-type").forEach(p => {
+  p.classList.toggle("on", !!libState.types[p.dataset.t]);
   p.onclick = () => {
     libState.types[p.dataset.t] = !libState.types[p.dataset.t];
+    savePref("libraryTypes", libState.types);
     p.classList.toggle("on", libState.types[p.dataset.t]);
     renderLibrary();
   };
 });
 document.querySelectorAll(".lib-sort").forEach(p => {
+  p.classList.toggle("on", p.dataset.s === libState.sort);
   p.onclick = () => {
     libState.sort = p.dataset.s;
+    savePref("librarySort", libState.sort);
     document.querySelectorAll(".lib-sort").forEach(q => q.classList.toggle("on", q === p));
     renderLibrary();
   };
@@ -761,11 +784,13 @@ $("lookupForm").onsubmit = async (e) => {
 
 let currentArtist = null;
 let releases = [];
-const relFilters = { missing: false, variants: false };
+const relFilters = { missing: false, variants: false, ...loadPref("releaseFilters", {}) };
 
 document.querySelectorAll("#artistView .filters .pill[data-f]").forEach(p => {
+  p.classList.toggle("on", !!relFilters[p.dataset.f]);
   p.onclick = () => {
     relFilters[p.dataset.f] = !relFilters[p.dataset.f];
+    savePref("releaseFilters", relFilters);
     p.classList.toggle("on", relFilters[p.dataset.f]);
     renderReleases();
   };
@@ -974,8 +999,8 @@ async function initSyncControls() {
   lbl.title = "Known artists are matched against the database only; new artists are looked up.";
   const onlyNew = document.createElement("input");
   onlyNew.type = "checkbox";
-  onlyNew.checked = localStorage.getItem("dropwatch.onlyNew") !== "0";
-  onlyNew.onchange = () => { try { localStorage.setItem("dropwatch.onlyNew", onlyNew.checked ? "1" : "0"); } catch {} };
+  onlyNew.checked = loadPref("onlyNew", 1) !== 0;
+  onlyNew.onchange = () => savePref("onlyNew", onlyNew.checked ? 1 : 0);
   lbl.append(onlyNew, " only new");
 
   const btn = el("button", "", "sync library");
@@ -1064,6 +1089,15 @@ const clearedSecrets = new Set();
 let sourcesDirty = false;
 
 function secretField(input, key, isSet, what, onChange = markSourcesDirty) {
+  // Password managers fill fields like these with the dropwatch login, which
+  // a save would then store as the source's password. Read-only fields are
+  // never autofilled; typing starts with a click or tab.
+  if (!input.dataset.guarded) {
+    input.dataset.guarded = "1";
+    input.readOnly = true;
+    input.addEventListener("focus", () => { input.readOnly = false; });
+    input.addEventListener("blur", () => { if (input.value === "") input.readOnly = true; });
+  }
   input.value = "";
   clearedSecrets.delete(key);
   const field = input.closest(".field");
