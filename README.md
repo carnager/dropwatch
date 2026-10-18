@@ -1,3 +1,5 @@
+<img src="internal/server/web/icon-256.png" alt="" width="96" align="right">
+
 # dropwatch
 
 dropwatch answers one question: **which albums am I missing?**

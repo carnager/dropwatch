@@ -74,6 +74,7 @@ func run() error {
 	}
 
 	srv := server.New(st, sources.NewMusicBrainz(userAgent), userAgent)
+	srv.SetVersion(version)
 	if err := srv.LoadConfig(); err != nil {
 		return fmt.Errorf("load settings: %w", err)
 	}

@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dropwatch</title>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="256x256" href="icon-256.png">
+<link rel="apple-touch-icon" href="icon-256.png">
 <style>
   :root {
     --bg: #faf9f7; --text: #21201d; --muted: #8a877f; --faint: #b5b2aa;
@@ -176,6 +179,13 @@
 
   #authView { max-width: 22rem; margin: 18vh auto 0; }
   #authView .wordmark { display: block; margin-bottom: 1.6rem; }
+  #authView .mark { display: block; width: 52px; height: 52px; margin: 0 0 .9rem -4px; }
+  .about { display: flex; gap: 1.2rem; align-items: center; padding: .4rem 0 1.2rem; }
+  .about img { width: 72px; height: 72px; flex-shrink: 0; }
+  .about .wordmark { font-size: 1.25rem; }
+  .about p { margin: .3rem 0 0; }
+  .srow a { color: var(--text); text-decoration: none; }
+  .srow a:hover { color: var(--accent); }
   #authView h2 { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0 0 .8rem; }
   #authView input { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 0; border-bottom: 1px solid var(--line); padding: .45rem 0; outline: none; margin-bottom: .6rem; }
   #authView input:focus { border-bottom-color: var(--accent); }
@@ -190,6 +200,7 @@
 <body>
 <div class="wrap">
   <form id="authView" class="hidden">
+    <img class="mark" src="icon-256.png" alt="" width="52" height="52">
     <span class="wordmark">drop<b>watch</b></span>
     <h2 id="authTitle">Log in</h2>
     <p class="hint" id="authHint"></p>
@@ -275,6 +286,7 @@
       <button type="button" class="pill set-tab on" data-tab="library">library</button>
       <button type="button" class="pill set-tab" data-tab="musicbrainz">musicbrainz</button>
       <button type="button" class="pill set-tab" data-tab="account">account</button>
+      <button type="button" class="pill set-tab" data-tab="about">about</button>
     </div>
 
     <section id="tab-library" class="settab">
@@ -390,6 +402,21 @@
       </div>
       <p class="note" id="accountMessage" role="status"></p>
       <p class="hint">An API token lets scripts and media players use the API: send it as <code>Authorization: Bearer &lt;token&gt;</code>. It is shown once; creating a new one replaces the old. Changing the password logs out other browsers.</p>
+    </section>
+
+    <section id="tab-about" class="settab hidden">
+      <div class="about">
+        <img src="icon-256.png" alt="" width="72" height="72">
+        <div>
+          <span class="wordmark">drop<b>watch</b></span>
+          <p class="hint">Tracks the artists in your music library and shows which of their albums you're missing, and what's new.</p>
+        </div>
+      </div>
+      <div class="srow"><div class="line"><span class="name">Version</span><span class="where" id="aboutVersion"></span></div></div>
+      <div class="srow"><div class="line"><span class="name">Project</span><span class="where"><a href="https://github.com/carnager/dropwatch" target="_blank" rel="noopener">github.com/carnager/dropwatch</a></span></div></div>
+      <div class="srow"><div class="line"><span class="name">Releases</span><span class="where"><a href="https://github.com/carnager/dropwatch/releases" target="_blank" rel="noopener">changelog and downloads</a></span></div></div>
+      <div class="srow"><div class="line"><span class="name">License</span><span class="where"><a href="https://github.com/carnager/dropwatch/blob/main/LICENSE" target="_blank" rel="noopener">GNU GPL v3.0</a></span></div></div>
+      <div class="srow"><div class="line"><span class="name">Data</span><span class="where"><a href="https://musicbrainz.org" target="_blank" rel="noopener">MusicBrainz</a> · <a href="https://www.discogs.com" target="_blank" rel="noopener">Discogs</a></span></div></div>
     </section>
   </div>
 
@@ -978,7 +1005,7 @@ async function initSyncControls() {
 
 /* ---------- settings ---------- */
 
-const SETTINGS_TABS = ["library", "musicbrainz", "account"];
+const SETTINGS_TABS = ["library", "musicbrainz", "account", "about"];
 let settingsTab = "library";
 
 function showSettingsTab(name) {
@@ -988,6 +1015,9 @@ function showSettingsTab(name) {
   if (settingsTab === "library") loadSettings();
   if (settingsTab === "musicbrainz") loadDumpSettings();
   if (settingsTab === "account") loadSettings();
+  if (settingsTab === "about") {
+    api("/api/config").then(c => { $("aboutVersion").textContent = c.version || "unknown"; }).catch(() => {});
+  }
 }
 document.querySelectorAll(".set-tab").forEach(p => {
   p.onclick = () => { location.hash = "settings/" + p.dataset.tab; };

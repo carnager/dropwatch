@@ -26,6 +26,7 @@ type Server struct {
 	store     *store.Store
 	mb        *sources.MusicBrainz
 	userAgent string
+	version   string        // shown in settings → about
 	maxAge    time.Duration // how long cached release lists stay fresh
 	watcher   *watch.Watcher
 
@@ -80,6 +81,8 @@ func (s *Server) dc() *sources.Discogs {
 
 func (s *Server) SetWatcher(w *watch.Watcher) { s.watcher = w }
 
+func (s *Server) SetVersion(v string) { s.version = v }
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/search/artists", s.handleSearchArtists)
@@ -111,11 +114,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/notifications/{id}/read", s.handleReadNotification)
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.config()
-		writeJSON(w, http.StatusOK, map[string]bool{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"mpd":      cfg.MPD.Enabled,
 			"subsonic": cfg.Subsonic.Enabled,
 			"melody":   cfg.Melody.Enabled,
 			"discogs":  s.dc() != nil,
+			"version":  s.version,
 		})
 	})
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
