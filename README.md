@@ -169,10 +169,13 @@ an album can also be `{"title": "...", "mbid": "<release group id>"}`.
 `-addr` (default `:8080`), `-db` (default `dropwatch.db`) and `-dump-dir`
 (default `<db>.dumps`). Everything else is configured in the web UI.
 
-The old `-mpd`, `-subsonic`, `-melody` and `-discogs-token` flags and their
-environment variables (`MPD_HOST`, `SUBSONIC_*`, `MELODY_*`, `DISCOGS_TOKEN`)
-are only read when a new database is created, so existing setups carry over.
-`dropwatch import` still bulk-imports from dump files for scripted setups.
+`-mpd`, `-subsonic`, `-melody` and `-discogs-token`, or the environment
+variables `MPD_HOST`, `MPD_PASSWORD`, `SUBSONIC_URL`, `SUBSONIC_USER`,
+`SUBSONIC_PASSWORD`, `MELODY_SERVER`, `MELODY_PASSWORD`,
+`MELODY_PASSWORD_FILE` and `DISCOGS_TOKEN`, prefill the settings when
+dropwatch creates a new database. They are ignored after that.
+
+`dropwatch import` imports a library from dump files on the command line.
 
 ## License
 

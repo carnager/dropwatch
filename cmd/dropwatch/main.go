@@ -41,8 +41,8 @@ func run() error {
 	addr := flag.String("addr", ":8080", "listen address")
 	dbPath := flag.String("db", "dropwatch.db", "path to SQLite database")
 	dumpDir := flag.String("dump-dir", "", "dump download directory (default: <db path>.dumps)")
-	// Everything else is set up in the web UI. These only seed the settings
-	// of a new database, so existing setups carry over on upgrade.
+	// Everything else is set up in the web UI. These only prefill the
+	// settings of a new database.
 	mpdAddr := flag.String("mpd", os.Getenv("MPD_HOST"), "first start only: MPD address (host[:port], password@host); also MPD_HOST")
 	discogsToken := flag.String("discogs-token", os.Getenv("DISCOGS_TOKEN"), "first start only: Discogs token; also DISCOGS_TOKEN")
 	subsonicURL := flag.String("subsonic", os.Getenv("SUBSONIC_URL"), "first start only: Subsonic URL; also SUBSONIC_URL (+ SUBSONIC_USER/SUBSONIC_PASSWORD)")
@@ -111,7 +111,7 @@ func run() error {
 	return nil
 }
 
-// seedConfig turns the legacy flags and env vars into initial settings.
+// seedConfig turns the source flags and env vars into initial settings.
 // Sources that can't connect as given (missing credentials) start disabled
 // but keep what was provided.
 func seedConfig(mpdAddr, subsonicURL, melodyAddr, discogsToken string) model.Config {

@@ -70,12 +70,11 @@ in
     };
     description = ''
       Environment variables for dropwatch. Library sources and the Discogs
-      token are configured in the web UI; the legacy variables (`MPD_HOST`,
-      `MPD_PASSWORD`, `SUBSONIC_URL`, `SUBSONIC_USER`, `SUBSONIC_PASSWORD`,
-      `MELODY_SERVER`, `MELODY_PASSWORD`, `MELODY_PASSWORD_FILE`,
-      `DISCOGS_TOKEN`) only fill in those settings when the database is
-      first created. Values end up in the Nix store; put secrets in
-      {option}`environmentFile` instead.
+      token are configured in the web UI. `MPD_HOST`, `MPD_PASSWORD`,
+      `SUBSONIC_URL`, `SUBSONIC_USER`, `SUBSONIC_PASSWORD`, `MELODY_SERVER`,
+      `MELODY_PASSWORD`, `MELODY_PASSWORD_FILE` and `DISCOGS_TOKEN` prefill
+      those settings when dropwatch creates a new database. Values end up in
+      the Nix store; put secrets in {option}`environmentFile` instead.
     '';
   };
 
