@@ -122,40 +122,57 @@
   .rel.ignored .title { text-decoration: line-through; text-decoration-color: var(--faint); }
   .rel.missing .year { color: var(--accent); }
 
-  .settings { max-width: 34rem; }
+  /* settings: hairline rows like the lists, inputs like the search field */
+  .settab { max-width: 40rem; }
   #settingsView .hint, #notificationsView .hint { color: var(--muted); }
-  .settings > label, .settings fieldset { display: block; margin: 1rem 0; }
-  .settings input[type=time], .settings input[type=text], .settings select {
-    font: inherit; color: var(--text); background: var(--bg);
-    border: 1px solid var(--line); border-radius: 3px; padding: .35rem .5rem;
+  .srow { border-bottom: 1px solid var(--line); }
+  .srow .line { display: flex; align-items: baseline; gap: .8rem; padding: .55rem 0; }
+  .srow .name { font-weight: 500; min-width: 8.5rem; display: inline-flex; gap: .45rem; align-items: baseline; cursor: default; }
+  .srow label.name { cursor: pointer; }
+  .srow .where { flex: 1; min-width: 0; font-family: var(--mono); font-size: .78rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .srow .state { font-family: var(--mono); font-size: .75rem; color: var(--faint); white-space: nowrap; }
+  .srow .state.ok { color: var(--owned); }
+  .srow .state.err { color: var(--accent); }
+  .srow.off .name { color: var(--muted); }
+  .srow .fields { padding: 0 0 .7rem; }
+  .srow .fields:empty { padding: 0; }
+  .progress { font-family: var(--mono); font-size: .75rem; color: var(--muted); }
+  .progress:not(:empty) { padding: 0 0 .55rem; }
+  .progress .err { color: var(--accent); }
+  .field { display: grid; grid-template-columns: 8.5rem 1fr; align-items: baseline; gap: .4rem .8rem; margin: .35rem 0; }
+  .field > span:first-child { color: var(--muted); font-size: .85rem; }
+  .field input[type=text], .field input[type=password], .field input[type=url], .field input[type=time] {
+    font: inherit; color: var(--text); background: transparent; width: 100%; min-width: 0;
+    border: 0; border-bottom: 1px solid var(--line); padding: .3rem 0; outline: none;
   }
-  .settings fieldset { border: 1px solid var(--line); padding: .6rem; }
-  .settings legend { color: var(--muted); font-size: .85rem; }
-  .weekdays { display: flex; flex-wrap: wrap; gap: .7rem; }
-  .weekdays label { white-space: nowrap; }
-  .settings .actions { display: flex; gap: .8rem; margin: 1.2rem 0; }
-  .notification { padding: .8rem 0; border-bottom: 1px solid var(--line); }
+  .field input[type=time], .field select { width: auto; justify-self: start; }
+  #scheduleForm > .sectionhead { margin-top: 1.6rem; }
+  @media (max-width: 560px) {
+    .field { grid-template-columns: 1fr; gap: .1rem; }
+    .srow .name { min-width: 0; }
+    .secret-note { margin-left: 0 !important; }
+  }
+  .field input:focus { border-bottom-color: var(--accent); }
+  .field input::placeholder { color: var(--faint); }
+  .field select { font: inherit; font-size: .9rem; color: var(--text); background: var(--bg); border: 0; border-bottom: 1px solid var(--line); padding: .1rem 0; }
+  input[type=checkbox] { accent-color: var(--accent); }
+  .days { display: flex; gap: .15rem; flex-wrap: wrap; }
+  .savebar { display: flex; align-items: baseline; gap: .8rem; margin: 1rem 0; }
+  .savebar .note { margin: 0; }
+  .savebar .pill:not(:disabled) { color: var(--text); border-color: var(--line); background: var(--hover); }
+  .secret-note { font-size: .78rem; color: var(--faint); grid-column: 2; margin-top: -.2rem; }
+  .secret-note button { padding: 0; font-size: .78rem; }
+  .token { font-family: var(--mono); font-size: .8rem; word-break: break-all; background: var(--hover); padding: .5rem; border-radius: 3px; margin-top: .3rem; }
+  details.hint summary { cursor: pointer; color: var(--muted); margin-top: 1.2rem; }
+  details.hint p { margin: .6rem 0; }
+  .notification { padding: .8rem 0; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: .8rem; }
+  .notification .text { flex: 1; min-width: 0; }
+  .notification .mark { visibility: hidden; font-size: .78rem; flex-shrink: 0; }
+  .notification:hover .mark, .notification .mark:focus { visibility: visible; }
   .notification.unread { border-left: 2px solid var(--accent); padding-left: .7rem; }
   .notification p { margin: .2rem 0; }
   .notification button { color: var(--text); padding-left: 0; font-weight: 500; text-align: left; }
   .notification .detail { color: var(--muted); font-size: .8rem; }
-
-  .settings input[type=password], .settings input[type=url] {
-    font: inherit; color: var(--text); background: var(--bg);
-    border: 1px solid var(--line); border-radius: 3px; padding: .35rem .5rem;
-  }
-  .settings .field { display: grid; grid-template-columns: 7.5rem 1fr; align-items: baseline; gap: .4rem .8rem; margin: .45rem 0; }
-  .settings .field > span { color: var(--muted); font-size: .85rem; }
-  .settings .field input { width: 100%; min-width: 0; }
-  .source { border-bottom: 1px solid var(--line); padding: .9rem 0 .6rem; }
-  .source > label:first-child { font-weight: 500; }
-  .source .body.off { opacity: .45; }
-  .source .test { display: flex; align-items: baseline; gap: .6rem; margin-top: .2rem; }
-  .source .result { font-size: .8rem; color: var(--muted); }
-  .result.ok { color: var(--owned); }
-  .result.err { color: var(--accent); }
-  .secret-note { font-size: .78rem; color: var(--faint); grid-column: 2; margin-top: -.25rem; }
-  .token { font-family: var(--mono); font-size: .8rem; word-break: break-all; background: var(--hover); padding: .5rem; border-radius: 3px; }
 
   #authView { max-width: 22rem; margin: 18vh auto 0; }
   #authView .wordmark { display: block; margin-bottom: 1.6rem; }
@@ -166,7 +183,7 @@
   .hidden { display: none; }
   @media (max-width: 560px) {
     .row .frac, .row .bar, .rel .src { display: none; }
-    .rel .st { visibility: visible; }
+    .rel .st, .notification .mark { visibility: visible; }
   }
 </style>
 </head>
@@ -254,97 +271,126 @@
   </div>
 
   <div id="settingsView" class="hidden">
-    <div class="sectionhead"><h2>Library</h2></div>
-    <p class="hint">Where your music lives. Enable any number of sources; a sync reads all of them, and an album owned in any one counts as owned.</p>
-    <form id="sourcesForm" class="settings" autocomplete="off">
-      <div class="source" data-source="mpd">
-        <label><input type="checkbox" name="enabled"> MPD</label>
-        <div class="body">
-          <label class="field"><span>Address</span><input type="text" name="address" placeholder="localhost:6600 or /run/mpd/socket"></label>
-          <label class="field"><span>Password</span><input type="password" name="password" placeholder="none"></label>
-          <div class="test"><button type="button" class="pill">test connection</button><span class="result"></span></div>
-        </div>
-      </div>
-      <div class="source" data-source="subsonic">
-        <label><input type="checkbox" name="enabled"> Subsonic <span class="hint">(Navidrome, gonic, Airsonic, …)</span></label>
-        <div class="body">
-          <label class="field"><span>URL</span><input type="url" name="url" placeholder="https://music.example.org"></label>
-          <label class="field"><span>User</span><input type="text" name="user"></label>
-          <label class="field"><span>Password</span><input type="password" name="password"></label>
-          <div class="test"><button type="button" class="pill">test connection</button><span class="result"></span></div>
-        </div>
-      </div>
-      <div class="source" data-source="melody">
-        <label><input type="checkbox" name="enabled"> melody</label>
-        <div class="body">
-          <label class="field"><span>Address</span><input type="text" name="address" placeholder="host:6603 or a socket path"></label>
-          <label class="field"><span>Password</span><input type="password" name="password"></label>
-          <div class="test"><button type="button" class="pill">test connection</button><span class="result"></span></div>
-        </div>
-      </div>
-      <div class="sectionhead"><h2>Discogs</h2></div>
-      <p class="hint">Optional. A <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">personal access token</a> adds releases MusicBrainz lacks.</p>
-      <label class="field"><span>Token</span><input type="password" id="discogsToken" placeholder="none"></label>
-      <div class="actions"><button type="submit" class="pill on" id="saveSources">save</button></div>
-    </form>
-    <p id="sourcesMessage" class="note" role="status"></p>
+    <div class="filters">
+      <button type="button" class="pill set-tab on" data-tab="library">library</button>
+      <button type="button" class="pill set-tab" data-tab="musicbrainz">musicbrainz</button>
+      <button type="button" class="pill set-tab" data-tab="account">account</button>
+    </div>
 
-    <div class="sectionhead"><h2>Release checks</h2></div>
-    <p class="hint">Check your tracked artists for new music using MusicBrainz dumps. New dumps are published on Wednesdays and Saturdays; checking the following day gives them time to finish.</p>
-    <form id="dumpSchedule" class="settings">
-      <label><input type="checkbox" id="dumpEnabled"> Download dumps automatically</label>
-      <label>How often
-        <select id="dumpFrequency">
-          <option value="custom">Selected weekdays</option>
-          <option value="daily">Every day</option>
-        </select>
-      </label>
-      <fieldset id="dumpDays"><legend>Download on</legend><div class="weekdays">
-        <label><input type="checkbox" value="1"> Mon</label>
-        <label><input type="checkbox" value="2"> Tue</label>
-        <label><input type="checkbox" value="3"> Wed</label>
-        <label><input type="checkbox" value="4"> Thu</label>
-        <label><input type="checkbox" value="5"> Fri</label>
-        <label><input type="checkbox" value="6"> Sat</label>
-        <label><input type="checkbox" value="0"> Sun</label>
-      </div></fieldset>
-      <label>At <input type="time" id="dumpTime" required></label>
-      <label>Timezone <input type="text" id="dumpTimezone" list="timezones" placeholder="Europe/Berlin" required></label>
-      <datalist id="timezones"><option value="Local">Server timezone</option><option value="UTC"></option></datalist>
-      <p class="hint">Use a named timezone such as Europe/Berlin to follow daylight saving time. “Local” uses the server's timezone. A time skipped by the spring clock change is skipped that day.</p>
-      <div class="actions">
-        <button type="submit" class="pill on" id="saveDumpSchedule">save schedule</button>
-        <button type="button" class="pill" id="checkDump">check now</button>
-      </div>
-    </form>
-    <p id="dumpMessage" class="note" role="status"></p>
-    <div id="dumpStatus" class="hint" aria-live="polite"></div>
-    <p class="hint">The first scan for each artist announces its releases from the last 30 days. Later scans notify about newly listed upcoming releases and releases from the last 30 days; older additions and undated entries still update the discography. Each new dump is about 1 GB. Downloads are skipped when that version has already been processed, unless newly tracked artists need a baseline.</p>
-    <p class="hint">Dropwatch must be running to download. If it misses a scheduled check while stopped, it checks once on the next start. Failed downloads retry at the next scheduled time, or with “check now”. Turning off automatic checks lets an active check finish.</p>
+    <section id="tab-library" class="settab">
+      <form id="sourcesForm" autocomplete="off">
+        <div class="sectionhead"><h2>Sources</h2><span class="agg" id="sourcesAgg"></span></div>
+        <div class="srow" data-source="mpd">
+          <div class="line">
+            <label class="name"><input type="checkbox" name="enabled"> MPD</label>
+            <span class="where"></span>
+            <span class="state"></span>
+            <button type="button" class="edit">edit</button>
+          </div>
+          <div class="fields hidden">
+            <label class="field"><span>Address</span><input type="text" name="address" placeholder="localhost:6600 or a socket path"></label>
+            <label class="field"><span>Password</span><input type="password" name="password"></label>
+            <div class="field"><span></span><div class="test"><button type="button" class="pill">test connection</button></div></div>
+          </div>
+          <div class="progress"></div>
+        </div>
+        <div class="srow" data-source="subsonic">
+          <div class="line">
+            <label class="name"><input type="checkbox" name="enabled"> Subsonic</label>
+            <span class="where"></span>
+            <span class="state"></span>
+            <button type="button" class="edit">edit</button>
+          </div>
+          <div class="fields hidden">
+            <label class="field"><span>URL</span><input type="url" name="url" placeholder="https://music.example.org"></label>
+            <label class="field"><span>User</span><input type="text" name="user"></label>
+            <label class="field"><span>Password</span><input type="password" name="password"></label>
+            <div class="field"><span></span><div class="test"><button type="button" class="pill">test connection</button></div></div>
+          </div>
+          <div class="progress"></div>
+        </div>
+        <div class="srow" data-source="melody">
+          <div class="line">
+            <label class="name"><input type="checkbox" name="enabled"> melody</label>
+            <span class="where"></span>
+            <span class="state"></span>
+            <button type="button" class="edit">edit</button>
+          </div>
+          <div class="fields hidden">
+            <label class="field"><span>Address</span><input type="text" name="address" placeholder="host:6603 or a socket path"></label>
+            <label class="field"><span>Password</span><input type="password" name="password"></label>
+            <div class="field"><span></span><div class="test"><button type="button" class="pill">test connection</button></div></div>
+          </div>
+          <div class="progress"></div>
+        </div>
+        <div class="sectionhead"><h2>Discogs</h2></div>
+        <div class="srow" data-source="discogs">
+          <div class="line">
+            <span class="name">Token</span>
+            <span class="where" id="discogsWhere"></span>
+            <button type="button" class="edit">edit</button>
+          </div>
+          <div class="fields hidden">
+            <label class="field"><span>Token</span><input type="password" id="discogsToken"></label>
+            <p class="hint">Optional second source for vinyl-only and obscure releases. Create a personal access token at <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">discogs.com/settings/developers</a>.</p>
+          </div>
+        </div>
+        <div class="savebar"><button type="submit" class="pill" id="saveSources" disabled>save</button><span class="note" id="sourcesMessage" role="status"></span></div>
+      </form>
+      <p class="hint">Subsonic covers Navidrome, gonic, Airsonic and friends. A sync reads every enabled source; an album owned in any of them counts as owned. Saved passwords are never shown: leave a field empty to keep one.</p>
+    </section>
 
-    <div class="sectionhead"><h2>Release titles</h2></div>
-    <p class="hint">Optional. The release dump lists every edition of every album. It lets library albums tagged with a release ID (Subsonic, melody) or named after a reissue match exactly. It is about 21 GB; it streams through without being stored, and only titles for albums already in dropwatch are kept.</p>
-    <form id="releaseForm" class="settings">
-      <label><input type="checkbox" id="releaseEnabled"> Download release titles on the schedule above, at most every
-        <select id="releaseInterval"><option value="7">week</option><option value="14">two weeks</option><option value="30">month</option><option value="90">three months</option></select></label>
-      <div class="actions">
-        <button type="submit" class="pill on">save</button>
-        <button type="button" class="pill" id="checkReleases">download now</button>
+    <section id="tab-musicbrainz" class="settab hidden">
+      <div class="sectionhead"><h2>Data</h2></div>
+      <div class="srow">
+        <div class="line"><span class="name">Release groups</span><span class="where" id="rgWhere"></span><button type="button" id="checkDump">check now</button></div>
+        <div class="progress" id="rgProgress"></div>
       </div>
-    </form>
-    <p id="releaseMessage" class="note" role="status"></p>
-    <div id="releaseStatus" class="hint" aria-live="polite"></div>
+      <div class="srow">
+        <div class="line"><span class="name">Release titles</span><span class="where" id="relWhere"></span><button type="button" id="checkReleases">download now</button></div>
+        <div class="progress" id="relProgress"></div>
+      </div>
 
-    <div class="sectionhead"><h2>Account</h2><button type="button" id="logout">log out</button></div>
-    <form id="passwordForm" class="settings">
-      <label class="field"><span>Current</span><input type="password" id="pwCurrent" autocomplete="current-password" required></label>
-      <label class="field"><span>New</span><input type="password" id="pwNew" autocomplete="new-password" minlength="8" required></label>
-      <div class="actions"><button type="submit" class="pill on">change password</button></div>
-    </form>
-    <p id="passwordMessage" class="note" role="status"></p>
-    <p class="hint">An API token lets scripts and media players use the API: send it as <code>Authorization: Bearer &lt;token&gt;</code>. Creating a new one replaces the old.</p>
-    <div class="settings actions"><button type="button" class="pill" id="newToken">create token</button><button type="button" id="revokeToken" class="hidden">revoke</button></div>
-    <p id="tokenMessage" class="note" role="status"></p>
+      <form id="scheduleForm">
+        <div class="sectionhead"><h2>Schedule</h2><span class="agg" id="nextRun"></span></div>
+        <label class="field"><span>Automatic</span><span><input type="checkbox" id="dumpEnabled"> download new dumps</span></label>
+        <div class="field"><span>Days</span><div class="days" id="dumpDays"><button type="button" class="pill on" data-d="1">Mon</button><button type="button" class="pill on" data-d="2">Tue</button><button type="button" class="pill on" data-d="3">Wed</button><button type="button" class="pill on" data-d="4">Thu</button><button type="button" class="pill on" data-d="5">Fri</button><button type="button" class="pill on" data-d="6">Sat</button><button type="button" class="pill on" data-d="0">Sun</button></div></div>
+        <label class="field"><span>Time</span><input type="time" id="dumpTime" required></label>
+        <label class="field"><span>Timezone</span><input type="text" id="dumpTimezone" list="timezones" placeholder="Europe/Berlin" required></label>
+        <datalist id="timezones"><option value="Local">Server timezone</option><option value="UTC"></option></datalist>
+        <label class="field"><span>Release titles</span><span><input type="checkbox" id="releaseEnabled"> also, at most every
+          <select id="releaseInterval"><option value="7">week</option><option value="14">two weeks</option><option value="30">month</option><option value="90">three months</option></select></span></label>
+        <div class="savebar"><button type="submit" class="pill" id="saveSchedule" disabled>save</button><span class="note" id="dumpMessage" role="status"></span></div>
+      </form>
+
+      <details class="hint">
+        <summary>How this works</summary>
+        <p><b>Release groups</b> (about 1 GB) list every album, EP and single. Each check updates your artists' discographies and raises notifications for new and upcoming releases; a new artist's first check announces its releases from the last 30 days. The latest dump is kept, so syncs can recognize new artists without asking MusicBrainz. MusicBrainz publishes on Wednesdays and Saturdays, so the following mornings are good check days. Versions already processed aren't downloaded again.</p>
+        <p><b>Release titles</b> (about 21 GB) list every edition of every album. They let albums tagged with a release ID (Subsonic, melody) and reissue-titled rips match exactly. The download streams through without being stored; only titles for albums already in dropwatch are kept.</p>
+        <p>Dropwatch must be running at the scheduled time; a missed check runs once on the next start, and a failed one retries at the next scheduled time. Use a named timezone such as Europe/Berlin to follow daylight saving time; “Local” is the server's timezone.</p>
+      </details>
+    </section>
+
+    <section id="tab-account" class="settab hidden">
+      <div class="sectionhead"><h2>Account</h2></div>
+      <div class="srow">
+        <div class="line"><span class="name">Password</span><span class="where"></span><button type="button" class="edit" id="pwEdit">change</button></div>
+        <form id="passwordForm" class="fields hidden">
+          <label class="field"><span>Current</span><input type="password" id="pwCurrent" autocomplete="current-password" required></label>
+          <label class="field"><span>New</span><input type="password" id="pwNew" autocomplete="new-password" minlength="8" required></label>
+          <div class="field"><span></span><div><button type="submit" class="pill on">change password</button></div></div>
+        </form>
+      </div>
+      <div class="srow">
+        <div class="line"><span class="name">API token</span><span class="where" id="tokenWhere"></span><button type="button" id="revokeToken" class="hidden">revoke</button><button type="button" id="newToken">create</button></div>
+        <div class="fields" id="tokenBox"></div>
+      </div>
+      <div class="srow">
+        <div class="line"><span class="name">Session</span><span class="where">this browser</span><button type="button" id="logout">log out</button></div>
+      </div>
+      <p class="note" id="accountMessage" role="status"></p>
+      <p class="hint">An API token lets scripts and media players use the API: send it as <code>Authorization: Bearer &lt;token&gt;</code>. It is shown once; creating a new one replaces the old. Changing the password logs out other browsers.</p>
+    </section>
   </div>
 
   <!-- ===== artist detail ===== -->
@@ -467,11 +513,15 @@ function route() {
     }
     return;
   }
+  if (hash === "settings" || hash.startsWith("settings/")) {
+    render("settings");
+    showSettingsTab(hash.split("/")[1] || settingsTab);
+    return;
+  }
   render(VIEWS.includes(hash) ? hash : "artists");
   if (currentView === "artists") loadArtists();
   if (currentView === "library") loadLibrary();
   if (currentView === "notifications") loadNotifications();
-  if (currentView === "settings") { loadSettings(); loadDumpSettings(); }
 }
 window.addEventListener("hashchange", route);
 
@@ -926,54 +976,118 @@ async function initSyncControls() {
   if (!syncPolling) { syncPolling = true; poll(); } // resume a running sync's progress
 }
 
-/* ---------- settings: sources, Discogs, account ---------- */
+/* ---------- settings ---------- */
+
+const SETTINGS_TABS = ["library", "musicbrainz", "account"];
+let settingsTab = "library";
+
+function showSettingsTab(name) {
+  settingsTab = SETTINGS_TABS.includes(name) ? name : "library";
+  for (const t of SETTINGS_TABS) $("tab-" + t).classList.toggle("hidden", t !== settingsTab);
+  document.querySelectorAll(".set-tab").forEach(p => p.classList.toggle("on", p.dataset.tab === settingsTab));
+  if (settingsTab === "library") loadSettings();
+  if (settingsTab === "musicbrainz") loadDumpSettings();
+  if (settingsTab === "account") loadSettings();
+}
+document.querySelectorAll(".set-tab").forEach(p => {
+  p.onclick = () => { location.hash = "settings/" + p.dataset.tab; };
+});
+
+function shortTime(value) {
+  if (!value || value.startsWith("0001-")) return "never";
+  return new Date(value).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+/* library sources and Discogs */
 
 // Secrets are write-only: the server says whether one is stored, an empty
 // field keeps it, and "remove" clears it.
 const clearedSecrets = new Set();
+let sourcesDirty = false;
 
 function secretField(input, key, isSet, what) {
   input.value = "";
   clearedSecrets.delete(key);
   const field = input.closest(".field");
-  field.querySelector(".secret-note")?.remove();
-  input.placeholder = isSet ? "saved — type to replace" : (input.dataset.empty || "none");
+  field.parentElement.querySelector(`.secret-note[data-for="${key}"]`)?.remove();
+  input.placeholder = isSet ? "saved — type to replace" : "none";
   if (!isSet) return;
-  const note = el("span", "secret-note", `A ${what} is saved. `);
-  const remove = el("button", "", "remove");
+  const note = el("div", "secret-note");
+  note.dataset.for = key;
+  note.style.marginLeft = "9.3rem";
+  const remove = el("button", "", `remove saved ${what}`);
   remove.type = "button";
-  remove.style.padding = "0";
   remove.onclick = () => {
     clearedSecrets.add(key);
-    input.placeholder = "will be removed on save";
-    note.textContent = "";
+    input.placeholder = "removed when you save";
+    note.remove();
+    markSourcesDirty();
   };
   note.append(remove);
-  field.append(note);
+  field.after(note);
 }
 
-function sourceBlock(name) { return document.querySelector(`.source[data-source="${name}"]`); }
+const sourceRow = name => document.querySelector(`.srow[data-source="${name}"]`);
 
-function syncSourceBody(block) {
-  block.querySelector(".body").classList.toggle("off", !block.querySelector('[name="enabled"]').checked);
+function markSourcesDirty() {
+  sourcesDirty = true;
+  $("saveSources").disabled = false;
+  $("sourcesMessage").textContent = "unsaved changes";
+}
+
+function setSourceState(row, cls, text, detail = "") {
+  const state = row.querySelector(".state");
+  state.className = "state " + cls;
+  state.textContent = text;
+  const progress = row.querySelector(".progress");
+  progress.replaceChildren();
+  if (detail) progress.append(el("span", "err", detail));
+}
+
+async function testSource(name) {
+  const row = sourceRow(name);
+  setSourceState(row, "", "connecting…");
+  try {
+    await api(`/api/sources/${name}/test`, jsonBody("POST", settingsUpdate()));
+    setSourceState(row, "ok", "connected");
+  } catch (err) {
+    setSourceState(row, "err", "unreachable", err.message);
+  }
+}
+
+function sourceSummary(name, cfg) {
+  if (name === "subsonic") return cfg.url ? (cfg.user ? `${cfg.user} @ ${cfg.url}` : cfg.url) : "";
+  return cfg.address || "";
 }
 
 function renderSettings(data) {
   const c = data.config;
+  let enabled = 0;
   for (const name of ["mpd", "subsonic", "melody"]) {
-    const block = sourceBlock(name);
+    const row = sourceRow(name);
     const cfg = c[name];
-    for (const input of block.querySelectorAll("input[name]")) {
+    for (const input of row.querySelectorAll("input[name]")) {
       if (input.name === "enabled") input.checked = cfg.enabled;
       else if (input.name === "password") secretField(input, name, cfg.passwordSet, "password");
       else input.value = cfg[input.name] || "";
     }
-    block.querySelector(".result").textContent = "";
-    syncSourceBody(block);
+    row.classList.toggle("off", !cfg.enabled);
+    row.querySelector(".where").textContent = sourceSummary(name, cfg) || "not set up";
+    if (cfg.enabled) {
+      enabled++;
+      testSource(name);
+    } else {
+      setSourceState(row, "", "off");
+    }
   }
+  $("sourcesAgg").textContent = enabled ? `${enabled} enabled` : "none enabled";
+  $("discogsWhere").textContent = c.discogs.tokenSet ? "saved" : "not set";
   secretField($("discogsToken"), "discogs", c.discogs.tokenSet, "token");
+  $("tokenWhere").textContent = data.apiTokenSet ? "active" : "none";
   $("revokeToken").classList.toggle("hidden", !data.apiTokenSet);
-  $("newToken").textContent = data.apiTokenSet ? "replace token" : "create token";
+  $("newToken").textContent = data.apiTokenSet ? "replace" : "create";
+  sourcesDirty = false;
+  $("saveSources").disabled = true;
 }
 
 function settingsUpdate() {
@@ -983,9 +1097,8 @@ function settingsUpdate() {
   };
   const out = {};
   for (const name of ["mpd", "subsonic", "melody"]) {
-    const block = sourceBlock(name);
     const cfg = {};
-    for (const input of block.querySelectorAll("input[name]")) {
+    for (const input of sourceRow(name).querySelectorAll("input[name]")) {
       if (input.name === "enabled") cfg.enabled = input.checked;
       else if (input.name === "password") cfg.password = secret(name, input);
       else cfg[input.name] = input.value.trim();
@@ -997,6 +1110,7 @@ function settingsUpdate() {
 }
 
 async function loadSettings() {
+  if (sourcesDirty) return; // don't throw away edits in progress
   try {
     renderSettings(await api("/api/settings"));
   } catch (err) {
@@ -1004,39 +1118,58 @@ async function loadSettings() {
   }
 }
 
-document.querySelectorAll(".source").forEach(block => {
-  block.querySelector('[name="enabled"]').onchange = () => syncSourceBody(block);
-  const button = block.querySelector(".test button");
-  const result = block.querySelector(".result");
-  button.onclick = async () => {
-    button.disabled = true;
-    result.className = "result";
-    result.textContent = "connecting…";
-    try {
-      await api(`/api/sources/${block.dataset.source}/test`, jsonBody("POST", settingsUpdate()));
-      result.className = "result ok";
-      result.textContent = "connected";
-    } catch (err) {
-      result.className = "result err";
-      result.textContent = err.message;
-    } finally {
-      button.disabled = false;
-    }
+document.querySelectorAll("#sourcesForm .srow").forEach(row => {
+  const fields = row.querySelector(".fields");
+  const edit = row.querySelector(".edit");
+  const toggle = open => {
+    fields.classList.toggle("hidden", !open);
+    edit.textContent = open ? "close" : "edit";
   };
+  edit.onclick = () => toggle(fields.classList.contains("hidden"));
+  const enabled = row.querySelector('[name="enabled"]');
+  if (enabled) {
+    enabled.onchange = () => {
+      row.classList.toggle("off", !enabled.checked);
+      setSourceState(row, "", enabled.checked ? "not saved" : "off");
+      if (enabled.checked) toggle(true);
+    };
+  }
+  // Keep the summary in step with what's typed.
+  row.addEventListener("input", () => {
+    const name = row.dataset.source;
+    if (name === "discogs") return;
+    const cfg = {};
+    row.querySelectorAll("input[name]").forEach(i => { cfg[i.name] = i.value.trim(); });
+    row.querySelector(".where").textContent = sourceSummary(name, cfg) || "not set up";
+  });
+  const test = row.querySelector(".test button");
+  if (test) test.onclick = () => testSource(row.dataset.source);
 });
+$("sourcesForm").oninput = markSourcesDirty;
 
 $("sourcesForm").onsubmit = async e => {
   e.preventDefault();
   $("saveSources").disabled = true;
   try {
-    renderSettings(await api("/api/settings", jsonBody("PUT", settingsUpdate())));
-    $("sourcesMessage").textContent = "Saved.";
+    const data = await api("/api/settings", jsonBody("PUT", settingsUpdate()));
+    sourcesDirty = false;
+    renderSettings(data);
+    document.querySelectorAll("#sourcesForm .fields").forEach(f => f.classList.add("hidden"));
+    document.querySelectorAll("#sourcesForm .edit").forEach(b => { b.textContent = "edit"; });
+    $("sourcesMessage").textContent = "saved";
     initSyncControls();
   } catch (err) {
-    $("sourcesMessage").textContent = err.message;
-  } finally {
     $("saveSources").disabled = false;
+    $("sourcesMessage").textContent = err.message;
   }
+};
+
+/* account */
+
+$("pwEdit").onclick = () => {
+  const open = $("passwordForm").classList.toggle("hidden") === false;
+  $("pwEdit").textContent = open ? "close" : "change";
+  if (open) $("pwCurrent").focus();
 };
 
 $("passwordForm").onsubmit = async e => {
@@ -1044,30 +1177,32 @@ $("passwordForm").onsubmit = async e => {
   try {
     await api("/api/auth/password", jsonBody("PUT", { current: $("pwCurrent").value, new: $("pwNew").value }));
     $("pwCurrent").value = $("pwNew").value = "";
-    $("passwordMessage").textContent = "Password changed. Other browsers have been logged out.";
+    $("passwordForm").classList.add("hidden");
+    $("pwEdit").textContent = "change";
+    $("accountMessage").textContent = "Password changed. Other browsers have been logged out.";
   } catch (err) {
-    $("passwordMessage").textContent = err.message;
+    $("accountMessage").textContent = err.message;
   }
 };
 
 $("newToken").onclick = async () => {
   try {
     const { token } = await api("/api/auth/token", { method: "POST" });
-    const msg = $("tokenMessage");
-    msg.replaceChildren(el("span", "", "Copy it now; it won't be shown again:"), el("div", "token", token));
-    loadSettings();
+    $("tokenBox").replaceChildren(el("p", "hint", "Copy it now; it won't be shown again."), el("div", "token", token));
+    await loadSettings();
   } catch (err) {
-    $("tokenMessage").textContent = err.message;
+    $("accountMessage").textContent = err.message;
   }
 };
 
 $("revokeToken").onclick = async () => {
   try {
     await api("/api/auth/token", { method: "DELETE" });
-    $("tokenMessage").textContent = "Token revoked.";
-    loadSettings();
+    $("tokenBox").replaceChildren();
+    $("accountMessage").textContent = "Token revoked.";
+    await loadSettings();
   } catch (err) {
-    $("tokenMessage").textContent = err.message;
+    $("accountMessage").textContent = err.message;
   }
 };
 
@@ -1076,17 +1211,11 @@ $("logout").onclick = async () => {
   showAuth(false);
 };
 
-/* ---------- scheduled release discovery ---------- */
+/* MusicBrainz data and schedule */
 
-let dumpSettingsLoaded = false;
-let dumpSettingsDirty = false;
+let scheduleDirty = false;
 let dumpRequestPending = false;
-$("dumpSchedule").oninput = () => { dumpSettingsDirty = true; };
-$("dumpFrequency").onchange = () => {
-  const daily = $("dumpFrequency").value === "daily";
-  $("dumpDays").disabled = daily;
-  if (daily) document.querySelectorAll("#dumpDays input").forEach(c => { c.checked = true; });
-};
+
 if (Intl.supportedValuesOf) {
   for (const zone of Intl.supportedValuesOf("timeZone")) {
     const option = el("option");
@@ -1095,153 +1224,103 @@ if (Intl.supportedValuesOf) {
   }
 }
 
-function dumpTime(value) {
-  if (!value || value.startsWith("0001-")) return "never";
-  return new Date(value).toLocaleString();
+function markScheduleDirty() {
+  scheduleDirty = true;
+  $("saveSchedule").disabled = false;
+  $("dumpMessage").textContent = "unsaved changes";
+}
+$("scheduleForm").oninput = markScheduleDirty;
+document.querySelectorAll("#dumpDays .pill").forEach(p => {
+  p.onclick = () => { p.classList.toggle("on"); markScheduleDirty(); };
+});
+
+function progressLine(st, unit, divisor, digits) {
+  const fmt = n => (n / divisor).toFixed(digits) + " " + unit;
+  let line = st.phase;
+  if (st.bytes) line += ` · ${fmt(st.bytes)}` + (st.totalBytes > 0 ? ` of ${fmt(st.totalBytes)}` : "");
+  if (st.records) line += ` · ${st.records.toLocaleString()} records`;
+  return line;
+}
+
+function renderDataRow(st, whereEl, progressEl, button, idleLabel, emptyText) {
+  whereEl.textContent = st.version
+    ? `${st.version} · ${shortTime(st.lastSuccess)}`
+    : emptyText;
+  button.disabled = st.running || dumpRequestPending;
+  button.textContent = st.running ? "running…" : idleLabel;
+  progressEl.replaceChildren();
+  if (st.running) progressEl.append(el("span", "", progressLine(st, "MiB", 1048576, 0)));
+  else if (st.lastError) progressEl.append(el("span", "err", "last attempt failed: " + st.lastError));
 }
 
 function renderDumpStatus(data) {
-  const st = data.status;
-  $("checkDump").disabled = st.running || dumpRequestPending;
-  $("checkDump").textContent = st.running ? "checking…" : "check now";
-  const status = $("dumpStatus");
-  status.replaceChildren();
-  status.appendChild(el("p", "", data.schedule.enabled
-    ? `Next check: ${dumpTime(data.nextRun)} (shown in your browser's timezone).`
-    : "Automatic downloads are off."));
-  let progress = st.phase;
-  if (st.phase === "downloading") {
-    const mib = n => (n / 1048576).toFixed(0) + " MiB";
-    progress += `: ${mib(st.bytes)}` + (st.totalBytes > 0 ? ` / ${mib(st.totalBytes)}` : "");
-  } else if (st.phase === "scanning") {
-    progress += `: ${st.records.toLocaleString()} release groups`;
-  }
-  if (st.running) status.appendChild(el("p", "", progress));
-  status.appendChild(el("p", "", `Last attempt: ${dumpTime(st.lastAttempt)}. Last successful check: ${dumpTime(st.lastSuccess)}.`));
-  if (st.version) status.appendChild(el("p", "", `Processed dump: ${st.version}.`));
-  if (st.lastError) status.appendChild(el("p", "", "Last check failed: " + st.lastError));
-  renderReleaseStatus(data);
-}
-
-let releaseDirty = false;
-$("releaseForm").oninput = () => { releaseDirty = true; };
-
-function renderReleaseStatus(data) {
-  const r = data.releases, st = r.status;
-  if (!releaseDirty) {
-    $("releaseEnabled").checked = r.enabled;
-    const interval = String(r.intervalDays);
+  renderDataRow(data.status, $("rgWhere"), $("rgProgress"), $("checkDump"), "check now", "not downloaded yet");
+  renderDataRow(data.releases.status, $("relWhere"), $("relProgress"), $("checkReleases"), "download now",
+    data.releases.enabled ? "not downloaded yet" : "off");
+  $("nextRun").textContent = data.schedule.enabled ? `next check ${shortTime(data.nextRun)}` : "automatic downloads off";
+  if (!scheduleDirty) {
+    $("dumpEnabled").checked = data.schedule.enabled;
+    $("dumpTime").value = data.schedule.time;
+    $("dumpTimezone").value = data.schedule.timezone;
+    document.querySelectorAll("#dumpDays .pill").forEach(p =>
+      p.classList.toggle("on", data.schedule.days.includes(Number(p.dataset.d))));
+    $("releaseEnabled").checked = data.releases.enabled;
+    const interval = String(data.releases.intervalDays);
     if (![...$("releaseInterval").options].some(o => o.value === interval)) {
       $("releaseInterval").appendChild(new Option(`${interval} days`, interval));
     }
     $("releaseInterval").value = interval;
+    $("saveSchedule").disabled = true;
   }
-  $("checkReleases").disabled = st.running;
-  $("checkReleases").textContent = st.running ? "downloading…" : "download now";
-  const box = $("releaseStatus");
-  box.replaceChildren();
-  if (r.enabled) {
-    box.appendChild(el("p", "", data.schedule.enabled
-      ? `Next download: ${dumpTime(r.nextRun)}.`
-      : "Waiting for automatic downloads above to be switched on."));
-  }
-  if (st.running) {
-    const gib = n => (n / 1073741824).toFixed(1) + " GiB";
-    let line = `${st.phase}: ${gib(st.bytes)}` + (st.totalBytes > 0 ? ` / ${gib(st.totalBytes)}` : "");
-    if (st.records) line += `, ${st.records.toLocaleString()} releases read`;
-    box.appendChild(el("p", "", line));
-  }
-  if (st.lastAttempt && !st.lastAttempt.startsWith("0001-")) {
-    box.appendChild(el("p", "", `Last attempt: ${dumpTime(st.lastAttempt)}. Last success: ${dumpTime(st.lastSuccess)}.`));
-  }
-  if (st.version) box.appendChild(el("p", "", `Processed release dump: ${st.version}.`));
-  if (st.lastError) box.appendChild(el("p", "", "Last download failed: " + st.lastError));
 }
-
-$("releaseForm").onsubmit = async e => {
-  e.preventDefault();
-  try {
-    const data = await api("/api/dumps/releases", jsonBody("PUT", {
-      enabled: $("releaseEnabled").checked, intervalDays: Number($("releaseInterval").value),
-    }));
-    releaseDirty = false;
-    renderDumpStatus(data);
-    $("releaseMessage").textContent = "Saved.";
-  } catch (err) {
-    $("releaseMessage").textContent = err.message;
-  }
-};
-
-$("checkReleases").onclick = async () => {
-  $("checkReleases").disabled = true;
-  try {
-    renderDumpStatus(await api("/api/dumps/releases/check", { method: "POST" }));
-    $("releaseMessage").textContent = "Download started. It takes a while; you can leave this page.";
-  } catch (err) {
-    $("releaseMessage").textContent = err.message;
-  } finally {
-    await loadDumpSettings();
-  }
-};
 
 async function loadDumpSettings() {
   try {
-    const data = await api("/api/dumps");
-    if (!dumpSettingsLoaded || !dumpSettingsDirty) {
-      $("dumpEnabled").checked = data.schedule.enabled;
-      $("dumpTime").value = data.schedule.time;
-      $("dumpTimezone").value = data.schedule.timezone;
-      document.querySelectorAll("#dumpDays input").forEach(c => {
-        c.checked = data.schedule.days.includes(Number(c.value));
-      });
-      const daily = data.schedule.days.length === 7;
-      $("dumpFrequency").value = daily ? "daily" : "custom";
-      $("dumpDays").disabled = daily;
-      dumpSettingsLoaded = true;
-    }
-    renderDumpStatus(data);
+    renderDumpStatus(await api("/api/dumps"));
   } catch (err) {
     $("dumpMessage").textContent = err.message;
   }
 }
 
-$("dumpSchedule").onsubmit = async e => {
+$("scheduleForm").onsubmit = async e => {
   e.preventDefault();
-  const button = $("saveDumpSchedule");
-  button.disabled = true;
+  $("saveSchedule").disabled = true;
   try {
-    const data = await api("/api/dumps/schedule", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        enabled: $("dumpEnabled").checked,
-        days: Array.from(document.querySelectorAll("#dumpDays input:checked"), c => Number(c.value)),
-        time: $("dumpTime").value, timezone: $("dumpTimezone").value.trim(),
-      }),
-    });
-    dumpSettingsDirty = false;
+    await api("/api/dumps/schedule", jsonBody("PUT", {
+      enabled: $("dumpEnabled").checked,
+      days: Array.from(document.querySelectorAll("#dumpDays .pill.on"), p => Number(p.dataset.d)),
+      time: $("dumpTime").value, timezone: $("dumpTimezone").value.trim(),
+    }));
+    const data = await api("/api/dumps/releases", jsonBody("PUT", {
+      enabled: $("releaseEnabled").checked, intervalDays: Number($("releaseInterval").value),
+    }));
+    scheduleDirty = false;
     renderDumpStatus(data);
-    $("dumpMessage").textContent = "Schedule saved.";
+    $("dumpMessage").textContent = "saved";
   } catch (err) {
+    $("saveSchedule").disabled = false;
     $("dumpMessage").textContent = err.message;
-  } finally {
-    button.disabled = false;
   }
 };
 
-$("checkDump").onclick = async () => {
+async function startDataJob(path, message) {
   dumpRequestPending = true;
-  $("checkDump").disabled = true;
   try {
-    const data = await api("/api/dumps/check", { method: "POST" });
-    $("dumpMessage").textContent = "Check started. You can leave this page while it runs.";
-    renderDumpStatus(data);
+    renderDumpStatus(await api(path, { method: "POST" }));
+    $("dumpMessage").textContent = message;
   } catch (err) {
     $("dumpMessage").textContent = err.message;
   } finally {
     dumpRequestPending = false;
     await loadDumpSettings();
   }
-};
+}
+$("checkDump").onclick = () => startDataJob("/api/dumps/check", "Check started; you can leave this page.");
+$("checkReleases").onclick = () => startDataJob("/api/dumps/releases/check", "Download started; it takes a while.");
+
+setInterval(() => {
+  if (!document.hidden && currentView === "settings" && settingsTab === "musicbrainz") loadDumpSettings();
+}, 5000);
 
 // Which release types the list (and its unread count) covers; remembered per
 // browser. At least one stays selected.
@@ -1283,16 +1362,37 @@ async function loadNotifications() {
     const labels = { new: "New release", upcoming: "Upcoming", released: "Release day" };
     for (const n of data.notifications) {
       const row = el("article", "notification" + (n.unread ? " unread" : ""));
+      const text = el("div", "text");
       const title = el("button", "", `${n.artistName} — ${n.title}`);
       title.type = "button";
-      title.onclick = () => openArtist({ id: n.artistId, name: n.artistName });
+      title.onclick = () => {
+        if (n.unread) markNotificationRead(n.id); // opening it counts as reading it
+        openArtist({ id: n.artistId, name: n.artistName });
+      };
       const type = n.primaryType ? ` · ${n.primaryType.toLowerCase()}` : "";
-      row.append(title, el("p", "detail", `${labels[n.kind] || n.kind}${type} · ${n.releaseDate}`));
+      text.append(title, el("p", "detail", `${labels[n.kind] || n.kind}${type} · ${n.releaseDate}`));
+      row.append(text);
+      if (n.unread) {
+        const mark = el("button", "mark", "mark read");
+        mark.type = "button";
+        mark.onclick = () => markNotificationRead(n.id);
+        row.append(mark);
+      }
       list.appendChild(row);
     }
   } catch (err) {
     if (currentView === "notifications") $("notificationsList").textContent = "Could not load notifications: " + err.message;
   }
+}
+
+async function markNotificationRead(id) {
+  try {
+    await api(`/api/notifications/${id}/read`, { method: "POST" });
+  } catch (err) {
+    $("notificationsList").prepend(el("p", "note", "Could not mark read: " + err.message));
+    return;
+  }
+  loadNotifications();
 }
 
 $("readNotifications").onclick = async () => {
@@ -1304,16 +1404,13 @@ $("readNotifications").onclick = async () => {
   }
 };
 
-setInterval(() => {
-  if (!document.hidden && currentView === "settings") loadDumpSettings();
-}, 5000);
 // startApp shows the app once logged in. A fresh setup lands in settings,
 // where the library sources are configured.
 function startApp(firstRun = false) {
   $("app").classList.remove("hidden");
   initSyncControls();
   loadNotifications();
-  if (firstRun) location.hash = "settings";
+  if (firstRun) location.hash = "settings/library";
   route();
   if (!appStarted) {
     appStarted = true;

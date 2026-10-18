@@ -361,3 +361,14 @@ func (s *Store) ApplyReleaseTitles(ctx context.Context, titles map[string][]Alia
 	}
 	return tx.Commit()
 }
+
+// ReadNotification marks one notification read; false if there is none with
+// that id.
+func (s *Store) ReadNotification(id int64) (bool, error) {
+	res, err := s.db.Exec(`UPDATE release_notifications SET unread = 0 WHERE id = ?`, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}

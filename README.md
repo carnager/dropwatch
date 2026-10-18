@@ -136,11 +136,13 @@ The command-line importer (`dropwatch import -dump release-group.tar.xz
   for albums / EPs / other.
 - **lookup** — search MusicBrainz to start tracking an artist you don't have
   locally yet. This is the only place that searches the outside world.
-- **notifications** — new and upcoming releases, with an unread count and
-  release-day reminders.
-- **settings** — library sources and Discogs; automatic dump downloads
-  (weekdays, time of day, timezone, progress, **check now**); the optional
-  release-title download; password and API token.
+- **notifications** — new and upcoming releases, with an unread count,
+  album/EP/single filters and release-day reminders. Mark them read one at
+  a time (opening one does too) or all at once.
+- **settings** — three tabs: *library* (sources with live connection
+  status, Discogs), *musicbrainz* (dump status with **check now**, the
+  download schedule, optional release titles) and *account* (password,
+  API token, log out).
 
 On an artist page you can mark any release owned or ignored, show variants
 (live albums, compilations), re-fetch from the sources, sync just this one
@@ -213,6 +215,7 @@ POST /api/dumps/releases/check           download release titles now
 GET  /api/notifications                  latest 200 notifications and unread count
        ?types=Album,EP,Single
 POST /api/notifications/read             mark due notifications read (same ?types=)
+POST /api/notifications/{id}/read        mark one notification read
 GET  /api/settings, PUT /api/settings    sources and Discogs (secrets are write-only)
 ```
 

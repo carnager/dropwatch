@@ -249,3 +249,23 @@ func TestNotificationTypeFilter(t *testing.T) {
 		t.Fatalf("reading singles touched other types: unread = %d", unread)
 	}
 }
+
+func TestReadSingleNotification(t *testing.T) {
+	s := watchStore(t)
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	if err := s.ApplyDump(context.Background(), map[string]bool{"artist": true},
+		map[string][]model.ReleaseGroup{"artist": {watchGroup("a", "2026-09-01"), watchGroup("b", "2026-09-02")}}, now, time.UTC); err != nil {
+		t.Fatal(err)
+	}
+	ns, _, _ := s.Notifications(now, nil)
+	if found, err := s.ReadNotification(ns[0].ID); err != nil || !found {
+		t.Fatalf("read: %v %v", found, err)
+	}
+	if found, _ := s.ReadNotification(99999); found {
+		t.Fatal("unknown id reported found")
+	}
+	ns, unread, _ := s.Notifications(now, nil)
+	if unread != 1 || ns[0].Unread || !ns[1].Unread {
+		t.Fatalf("after reading one: %+v unread=%d", ns, unread)
+	}
+}

@@ -108,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/dumps/releases/check", s.handleReleaseCheck)
 	mux.HandleFunc("GET /api/notifications", s.handleNotifications)
 	mux.HandleFunc("POST /api/notifications/read", s.handleReadNotifications)
+	mux.HandleFunc("POST /api/notifications/{id}/read", s.handleReadNotification)
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.config()
 		writeJSON(w, http.StatusOK, map[string]bool{
