@@ -93,6 +93,7 @@ func run() error {
 	defer watcher.Close()
 	srv.SetWatcher(watcher)
 	go srv.RunPusher(ctx)
+	go srv.RunAutoSync(ctx)
 	log.Printf("dropwatch listening on %s", *addr)
 	httpServer := &http.Server{Addr: *addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	serveErr := make(chan error, 1)

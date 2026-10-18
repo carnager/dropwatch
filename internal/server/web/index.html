@@ -348,8 +348,14 @@
             <p class="hint">Optional second source for vinyl-only and obscure releases. Create a personal access token at <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">discogs.com/settings/developers</a>.</p>
           </div>
         </div>
+        <div class="sectionhead"><h2>Sync</h2><span class="agg" id="autoSyncAgg"></span></div>
+        <label class="field"><span>Automatically</span><select id="syncInterval">
+          <option value="0">off</option><option value="1">every hour</option><option value="6">every 6 hours</option>
+          <option value="12">every 12 hours</option><option value="24">every day</option></select></label>
+        <div class="progress" id="autoSyncError"></div>
         <div class="savebar"><button type="submit" class="pill" id="saveSources" disabled>save</button><span class="note" id="sourcesMessage" role="status"></span></div>
       </form>
+      <p class="hint">Automatic syncs work like <i>sync library</i> with <i>only new</i> checked: artists dropwatch already knows are checked against the database, new ones are looked up.</p>
       <p class="hint">Subsonic covers Navidrome, gonic, Airsonic and friends. A sync reads every enabled source; an album owned in any of them counts as owned. Saved passwords are never shown: leave a field empty to keep one.</p>
     </section>
 
@@ -1134,6 +1140,16 @@ function renderSettings(data) {
   }
   $("sourcesAgg").textContent = enabled ? `${enabled} enabled` : "none enabled";
   $("discogsWhere").textContent = c.discogs.tokenSet ? "saved" : "not set";
+  const interval = String(c.sync.intervalHours);
+  if (![...$("syncInterval").options].some(o => o.value === interval)) {
+    $("syncInterval").appendChild(new Option(`every ${interval} hours`, interval));
+  }
+  $("syncInterval").value = interval;
+  const auto = data.autoSync;
+  const ran = auto.lastRun && !auto.lastRun.startsWith("0001-");
+  $("autoSyncAgg").textContent = ran ? `last automatic sync ${shortTime(auto.lastRun)}` : "";
+  $("autoSyncError").replaceChildren();
+  if (ran && auto.lastError) $("autoSyncError").append(el("span", "err", "last automatic sync failed: " + auto.lastError));
   secretField($("discogsToken"), "discogs", c.discogs.tokenSet, "token");
   if (!ntfyDirty) renderNtfy(c.ntfy);
   $("tokenWhere").textContent = data.apiTokenSet ? "active" : "none";
@@ -1159,6 +1175,7 @@ function settingsUpdate() {
     out[name] = cfg;
   }
   out.discogs = { token: secret("discogs", $("discogsToken")) };
+  out.sync = { intervalHours: Number($("syncInterval").value) };
   return out;
 }
 

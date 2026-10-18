@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -139,35 +140,50 @@ func mergeLibraries(libraries ...[]mpdclient.Artist) []mpdclient.Artist {
 	return out
 }
 
+var (
+	errNoSources   = errors.New("no library source is enabled; set one up in settings")
+	errSyncRunning = errors.New("a sync is already running")
+)
+
 // handleSyncLibrary starts a background sync of every enabled source. It
 // returns immediately; progress comes from /api/sync/status. Optional
 // ?artist=<name> restricts to album artists containing the value (?exact=1:
 // equal to it), and ?skip_existing=1 makes no web-service requests for
 // artists already tracked.
 func (s *Server) handleSyncLibrary(w http.ResponseWriter, r *http.Request) {
+	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("artist")))
+	err := s.startLibrarySync(r.Context(), filter, r.URL.Query().Get("exact") == "1", r.URL.Query().Get("skip_existing") == "1")
+	switch {
+	case errors.Is(err, errNoSources):
+		writeErr(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, errSyncRunning):
+		writeErr(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeErr(w, http.StatusBadGateway, err.Error())
+	default:
+		writeJSON(w, http.StatusAccepted, map[string]any{"started": true})
+	}
+}
+
+// startLibrarySync checks every enabled source can be reached (so connection
+// and password problems surface to the caller, not in a dead background job)
+// and then reads and syncs them in the background.
+func (s *Server) startLibrarySync(ctx context.Context, filter string, exact, skipExisting bool) error {
 	srcs := enabledSources(s.config())
 	if len(srcs) == 0 {
-		writeErr(w, http.StatusBadRequest, "no library source is enabled; set one up in settings")
-		return
+		return errNoSources
 	}
 	s.jobMu.Lock()
 	if s.job != nil && func() bool { s.job.mu.Lock(); defer s.job.mu.Unlock(); return s.job.Running }() {
 		s.jobMu.Unlock()
-		writeErr(w, http.StatusConflict, "a sync is already running")
-		return
+		return errSyncRunning
 	}
-	// Connection and password problems surface in the response instead of
-	// a dead background job.
 	for _, src := range srcs {
-		if err := src.ping(r.Context()); err != nil {
+		if err := src.ping(ctx); err != nil {
 			s.jobMu.Unlock()
-			writeErr(w, http.StatusBadGateway, err.Error())
-			return
+			return err
 		}
 	}
-	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("artist")))
-	exact := r.URL.Query().Get("exact") == "1"
-	skipExisting := r.URL.Query().Get("skip_existing") == "1"
 	job := &mpdJob{Running: true, Current: "reading library…"}
 	s.job = job
 	s.jobMu.Unlock()
@@ -215,5 +231,5 @@ func (s *Server) handleSyncLibrary(w http.ResponseWriter, r *http.Request) {
 		job.mu.Unlock()
 		s.runSyncArtists(job, artists, skipExisting)
 	}()
-	writeJSON(w, http.StatusAccepted, map[string]any{"started": true})
+	return nil
 }

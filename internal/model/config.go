@@ -16,6 +16,12 @@ type Config struct {
 	Melody   MelodyConfig   `json:"melody"`
 	Discogs  DiscogsConfig  `json:"discogs"`
 	Ntfy     NtfyConfig     `json:"ntfy"`
+	Sync     SyncConfig     `json:"sync"`
+}
+
+// SyncConfig runs an "only new" library sync on an interval.
+type SyncConfig struct {
+	IntervalHours int `json:"intervalHours"` // 0: off
 }
 
 // NtfyConfig sends release notifications to an ntfy topic.
@@ -106,6 +112,9 @@ func (c Config) Validate() error {
 			return fmt.Errorf("unknown release type %q", t)
 		}
 	}
+	if c.Sync.IntervalHours < 0 || c.Sync.IntervalHours > 168 {
+		return fmt.Errorf("the sync interval must be between 1 and 168 hours, or off")
+	}
 	if c.Ntfy.LinkURL != "" {
 		if u, err := url.Parse(c.Ntfy.LinkURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return fmt.Errorf("the dropwatch address must be an http(s) URL")
@@ -146,6 +155,7 @@ type PublicConfig struct {
 		Types       []string `json:"types"`
 		LinkURL     string   `json:"linkUrl"`
 	} `json:"ntfy"`
+	Sync SyncConfig `json:"sync"`
 }
 
 func (c Config) Public() PublicConfig {
@@ -161,6 +171,7 @@ func (c Config) Public() PublicConfig {
 	if p.Ntfy.Types == nil {
 		p.Ntfy.Types = []string{}
 	}
+	p.Sync = c.Sync
 	return p
 }
 
@@ -197,6 +208,7 @@ type ConfigUpdate struct {
 		Types    []string `json:"types"`
 		LinkURL  string   `json:"linkUrl"`
 	} `json:"ntfy"`
+	Sync *SyncConfig `json:"sync"`
 }
 
 // Apply merges the update into the stored config.
@@ -224,6 +236,9 @@ func (u ConfigUpdate) Apply(c Config) Config {
 		c.Ntfy = NtfyConfig{Enabled: n.Enabled, Server: strings.TrimSpace(n.Server), Topic: strings.TrimSpace(n.Topic),
 			Token: keep(c.Ntfy.Token, n.Token), User: strings.TrimSpace(n.User), Password: keep(c.Ntfy.Password, n.Password),
 			Types: n.Types, LinkURL: strings.TrimRight(strings.TrimSpace(n.LinkURL), "/"), Since: c.Ntfy.Since}
+	}
+	if u.Sync != nil {
+		c.Sync = *u.Sync
 	}
 	return c
 }

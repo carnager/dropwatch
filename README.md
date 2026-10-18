@@ -117,7 +117,8 @@ title, and Discogs-only bootlegs and promos are dropped.
 
 With *only new* checked, a sync makes no requests for artists dropwatch
 already knows; their albums are checked against the database. Uncheck it now
-and then to refresh everything.
+and then to refresh everything. Settings → library can run this kind of sync
+automatically, from every hour to once a day.
 
 Notifications come from the scheduled dump checks: new albums, EPs and
 singles from the last 30 days, upcoming releases, and a reminder on release
