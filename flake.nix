@@ -12,7 +12,7 @@
         "aarch64-linux"
       ];
       forAllSystems = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-      version = "0.1.0";
+      version = "0.1.1";
       dropwatchFor =
         pkgs:
         pkgs.callPackage ./nix/package.nix {
