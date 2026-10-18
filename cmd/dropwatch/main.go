@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // schedules use named timezones; don't depend on the host's zoneinfo
 
 	"dropwatch/internal/melody"
 	"dropwatch/internal/model"

@@ -48,6 +48,62 @@ Only three flags remain: `-addr` (listen address, default `:8080`), `-db`
 `-discogs-token`/`DISCOGS_TOKEN`) are read once, when a database is created,
 so an existing setup carries over; after that the web UI is in charge.
 
+### NixOS and Home Manager
+
+The repository is a flake with a package, a NixOS module and a Home Manager
+module (Linux, x86_64 and aarch64):
+
+```nix
+{
+  inputs.dropwatch.url = "github:carnager/dropwatch";
+
+  outputs = { nixpkgs, dropwatch, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        dropwatch.nixosModules.default
+        {
+          services.dropwatch = {
+            enable = true;
+            address = "0.0.0.0";        # default 127.0.0.1
+            port = 8080;
+            openFirewall = true;
+            # environmentFile = "/run/secrets/dropwatch.env";
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+For a user service, import `dropwatch.homeManagerModules.default` into your
+Home Manager configuration instead; it takes the same options except
+`openFirewall`, `user` and `group`, and keeps its data under
+`~/.local/share/dropwatch`.
+
+| Option | Default | |
+|---|---|---|
+| `enable` | `false` | |
+| `package` | this flake's package | |
+| `address`, `port` | `127.0.0.1`, `8080` | `-addr`; IPv6 addresses are bracketed for you |
+| `dataDir` | `/var/lib/dropwatch` | |
+| `database` | `<dataDir>/dropwatch.db` | `-db` |
+| `dumpDir` | `<dataDir>/dumps` | `-dump-dir`; room for ~2.5 GB |
+| `environment` | `{}` | extra environment variables (end up in the Nix store) |
+| `environmentFile` | `null` | `NAME=value` file read by systemd, for secrets |
+| `extraArgs` | `[]` | more command-line arguments |
+| `openFirewall` | `false` | NixOS only |
+| `user`, `group` | `dropwatch` | NixOS only; created when left at the default |
+
+Everything else (library sources, Discogs, schedules) is set in the web UI.
+The legacy variables (`MPD_HOST`, `MELODY_SERVER`, `DISCOGS_TOKEN`, …) in
+`environment` or `environmentFile` only seed those settings when the
+database is created. The NixOS service runs with systemd sandboxing
+(read-only system, no home directories), so a password file referenced by
+`MELODY_PASSWORD_FILE` must live outside `/home`; prefer `MELODY_PASSWORD`
+in `environmentFile`.
+
 ## Getting your library in
 
 A sync reads every enabled source and works out which MusicBrainz artist each
