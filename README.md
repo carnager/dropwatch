@@ -1,14 +1,30 @@
-<img src="internal/server/web/icon-256.png" alt="" width="96" align="right">
+<p align="center">
+  <img src="internal/server/web/icon-256.png" alt="dropwatch" width="128">
+</p>
 
-# dropwatch
+<h1 align="center">dropwatch</h1>
 
-dropwatch answers one question: **which albums am I missing?**
+<p align="center">
+  Which albums by your artists are you missing, and what just dropped?
+</p>
 
-It keeps a list of your artists, knows every album and EP they ever released
-(via MusicBrainz, optionally Discogs), compares that against your music
-library, and shows you the gaps. Different versions of the same album —
-remasters, deluxe editions, reissues — count as one album, so you don't get
-told you're "missing" a record you already own in a different pressing.
+<p align="center">
+  <a href="https://github.com/carnager/dropwatch/releases/latest">Download</a> ·
+  <a href="#nixos-and-home-manager">NixOS</a> ·
+  <a href="#using-it-from-scripts">API</a> ·
+  <a href="LICENSE">GPL-3.0</a>
+</p>
+
+dropwatch reads your music library from MPD, a Subsonic server (Navidrome,
+gonic, Airsonic, …) or melody, works out who your artists are, and knows
+every album and EP they ever released, via MusicBrainz and optionally
+Discogs. It shows you the gaps, and it keeps watching: when one of your
+artists announces or releases something new, it tells you.
+
+Different versions of the same album (remasters, deluxe editions,
+reissues) count as one, so you're never told you're "missing" a record you
+already own in another pressing. It's self-hosted: one binary, a SQLite
+database, and setup in the browser.
 
 ## Quick start
 
