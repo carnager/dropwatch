@@ -10,66 +10,38 @@
 
 <p align="center">
   <a href="https://github.com/carnager/dropwatch/releases/latest">Download</a> ·
-  <a href="#nixos-and-home-manager">NixOS</a> ·
-  <a href="#using-it-from-scripts">API</a> ·
+  <a href="#nix">Nix</a> ·
+  <a href="#api">API</a> ·
   <a href="LICENSE">GPL-3.0</a>
 </p>
 
 dropwatch reads your music library from MPD, a Subsonic server (Navidrome,
-gonic, Airsonic, …) or melody, works out who your artists are, and knows
-every album and EP they ever released, via MusicBrainz and optionally
-Discogs. It shows you the gaps, and it keeps watching: when one of your
-artists announces or releases something new, it tells you.
+gonic, Airsonic) or melody, and compares it with each artist's discography on
+MusicBrainz, plus Discogs if you like. It lists the albums and EPs you don't
+have and tells you when your artists release something new. Remasters, deluxe
+editions and reissues count as the album they belong to.
 
-Different versions of the same album (remasters, deluxe editions,
-reissues) count as one, so you're never told you're "missing" a record you
-already own in another pressing. It's self-hosted: one binary, a SQLite
-database, and setup in the browser.
+It runs as a single binary with a SQLite database and is configured in the
+browser.
 
-## Quick start
+## Install
 
-Download a Linux binary from the
-[releases page](https://github.com/carnager/dropwatch/releases), or build it
-(Go 1.27+, no C compiler needed):
+Grab a Linux build from the
+[releases](https://github.com/carnager/dropwatch/releases/latest), or build it
+yourself with Go 1.27:
 
 ```sh
 go build -o dropwatch ./cmd/dropwatch
 ./dropwatch
 ```
 
-`tar` and `xz` must be installed; dropwatch uses them to read MusicBrainz
+`tar` and `xz` need to be installed; they're used to read the MusicBrainz
 dumps.
 
-Open http://localhost:8080 and everything else happens in the browser:
-
-1. **Set a password.** The first visit asks for one; after that the UI and
-   the API need a login (or an API token, see below).
-2. **Settings → Library.** Enable any of MPD, Subsonic (Navidrome, gonic,
-   Airsonic, …) and melody, fill in address and credentials, and use
-   **test connection**. Several sources can be on at once: a sync reads all
-   of them, and an album owned in any one counts as owned. Optionally paste
-   a Discogs token (discogs.com/settings/developers → "Generate new token")
-   to catch vinyl-only and obscure releases.
-3. **Settings → Release checks → check now.** Downloads the MusicBrainz
-   release-group dump (about 1 GB) and keeps it.
-4. **sync library** (top right). New artists are resolved from that dump in
-   one pass — a couple of minutes even for thousands of artists — and only
-   the few it can't confirm are looked up online.
-
-Passwords and tokens are stored in the database and never shown again in the
-UI; leave a field empty to keep the saved value.
-
-Only three flags remain: `-addr` (listen address, default `:8080`), `-db`
-(database path) and `-dump-dir` (where the dump is kept, default
-`<db path>.dumps`). The older source flags and environment variables
-(`-mpd`/`MPD_HOST`, `-subsonic`/`SUBSONIC_*`, `-melody`/`MELODY_*`,
-`-discogs-token`/`DISCOGS_TOKEN`) are read once, when a database is created,
-so an existing setup carries over; after that the web UI is in charge.
-
-### NixOS and Home Manager
+### Nix
 
 The repository is a flake with a package, a NixOS module and a Home Manager
-module (Linux, x86_64 and aarch64):
+module:
 
 ```nix
 {
@@ -83,10 +55,8 @@ module (Linux, x86_64 and aarch64):
         {
           services.dropwatch = {
             enable = true;
-            address = "0.0.0.0";        # default 127.0.0.1
-            port = 8080;
+            address = "0.0.0.0";
             openFirewall = true;
-            # environmentFile = "/run/secrets/dropwatch.env";
           };
         }
       ];
@@ -95,176 +65,115 @@ module (Linux, x86_64 and aarch64):
 }
 ```
 
-For a user service, import `dropwatch.homeManagerModules.default` into your
-Home Manager configuration instead; it takes the same options except
-`openFirewall`, `user` and `group`, and keeps its data under
-`~/.local/share/dropwatch`.
+For a user service, import `dropwatch.homeManagerModules.default` instead. It
+has the same options except `openFirewall`, `user` and `group`, and stores its
+data in `~/.local/share/dropwatch`.
 
 | Option | Default | |
 |---|---|---|
-| `enable` | `false` | |
-| `package` | this flake's package | |
-| `address`, `port` | `127.0.0.1`, `8080` | `-addr`; IPv6 addresses are bracketed for you |
+| `address`, `port` | `127.0.0.1`, `8080` | |
 | `dataDir` | `/var/lib/dropwatch` | |
-| `database` | `<dataDir>/dropwatch.db` | `-db` |
-| `dumpDir` | `<dataDir>/dumps` | `-dump-dir`; room for ~2.5 GB |
-| `environment` | `{}` | extra environment variables (end up in the Nix store) |
-| `environmentFile` | `null` | `NAME=value` file read by systemd, for secrets |
-| `extraArgs` | `[]` | more command-line arguments |
+| `database` | `<dataDir>/dropwatch.db` | |
+| `dumpDir` | `<dataDir>/dumps` | needs ~2.5 GB |
+| `environment` | `{}` | ends up in the Nix store |
+| `environmentFile` | `null` | for secrets |
+| `extraArgs` | `[]` | |
 | `openFirewall` | `false` | NixOS only |
-| `user`, `group` | `dropwatch` | NixOS only; created when left at the default |
+| `user`, `group` | `dropwatch` | NixOS only |
 
-Everything else (library sources, Discogs, schedules) is set in the web UI.
-The legacy variables (`MPD_HOST`, `MELODY_SERVER`, `DISCOGS_TOKEN`, …) in
-`environment` or `environmentFile` only seed those settings when the
-database is created. The NixOS service runs with systemd sandboxing
-(read-only system, no home directories), so a password file referenced by
-`MELODY_PASSWORD_FILE` must live outside `/home`; prefer `MELODY_PASSWORD`
-in `environmentFile`.
+The NixOS service is sandboxed and can't read `/home`.
 
-## Getting your library in
+## Setup
 
-A sync reads every enabled source and works out which MusicBrainz artist each
-of your album artists is. For an artist it doesn't know yet it tries, in
-order: a name or alias it has seen before; for "A & B" credits, artist A if
-one of the albums is in A's discography; the kept dump (name plus at least
-one matching album); the credited artist of one of your tagged albums (one
-MusicBrainz request, exact); and finally a name search that only accepts an
-artist actually called that. Various Artists is never accepted.
+Open http://localhost:8080.
 
-With **only new** checked, known artists cause no requests at all — their
-albums are matched against the database, so new purchases still get marked
-owned. Uncheck it occasionally to re-verify everything against MusicBrainz.
+1. Choose a password. The UI and the API require it from then on.
+2. Under settings → library, enable your sources and test the connection.
+   You can use several at once; an album owned in any of them counts. A
+   Discogs token is optional.
+3. Under settings → musicbrainz, press *check now*. This downloads the
+   MusicBrainz release-group dump (about 1 GB) and keeps it.
+4. Press *sync library*. Most artists are recognized from the dump within a
+   couple of minutes; the rest are looked up online, which is rate-limited
+   and takes a few seconds each.
 
-**Release titles (optional).** Settings → Release titles downloads the
-MusicBrainz release dump (about 21 GB) on the release-check schedule, at most
-as often as you choose. It streams straight through without being stored and
-keeps only the titles and release IDs of albums already in dropwatch. That
-makes albums tagged with a release ID (Subsonic, melody) and reissue-titled
-rips ("Aaliyah: Edition 2004") match exactly.
+Turn on the schedule in settings → musicbrainz to keep discographies current
+and get notified about new releases. MusicBrainz publishes new dumps on
+Wednesdays and Saturdays, so Thursday and Sunday mornings work well.
 
-The command-line importer (`dropwatch import -dump release-group.tar.xz
-[-release-dump release.tar.xz] -mpd host`) still exists for scripted setups.
+## How it works
 
-## The web UI
+dropwatch decides which MusicBrainz artist a library artist is in this order:
+a name it already knows, the first artist of an "A & B" credit, the kept dump,
+the credited artist of one of your tagged albums, and finally a name search.
+The "A & B" and dump steps only accept an artist if one of your albums is in
+its discography, and the search only accepts an artist with exactly that name
+or alias.
 
-- **artists** — your artists, with owned/total counts and how many albums
-  are missing. Filter as you type. Artists with gaps are listed first.
-- **library** — everything you own, filterable and sortable, with toggles
-  for albums / EPs / other.
-- **lookup** — search MusicBrainz to start tracking an artist you don't have
-  locally yet. This is the only place that searches the outside world.
-- **notifications** — new and upcoming releases, with an unread count,
-  album/EP/single filters and release-day reminders. Mark them read one at
-  a time (opening one does too) or all at once.
-- **settings** — three tabs: *library* (sources with live connection
-  status, Discogs), *musicbrainz* (dump status with **check now**, the
-  download schedule, optional release titles) and *account* (password,
-  API token, log out).
+Albums are matched by MusicBrainz ID when your tags have one, otherwise by
+title, ignoring case, punctuation and edition suffixes such as "(Deluxe
+Edition)". MusicBrainz release groups and Discogs masters are merged by
+title, and Discogs-only bootlegs and promos are dropped.
 
-On an artist page you can mark any release owned or ignored, show variants
-(live albums, compilations), re-fetch from the sources, sync just this one
-artist from your library, or untrack the artist. Anything you own is always
-visible, whatever the filters say.
+With *only new* checked, a sync makes no requests for artists dropwatch
+already knows; their albums are checked against the database. Uncheck it now
+and then to refresh everything.
 
-## Scheduled release notifications
+Notifications come from the scheduled dump checks: new albums, EPs and
+singles from the last 30 days, upcoming releases, and a reminder on release
+day.
 
-Open **settings**, enable automatic downloads, choose the days and time,
-and save. For example, select **Thursday and Sunday at 04:00** in
-**Europe/Berlin**. MusicBrainz [publishes JSON dumps twice a week](https://metabrainz.org/datasets/postgres-dumps),
-on Wednesdays and Saturdays; the following morning leaves time for publication.
-Automatic downloads are off until enabled. Settings persist in the database.
+Optionally, dropwatch can also process the MusicBrainz release dump (about
+21 GB, streamed and not stored). It adds the title and ID of every edition of
+the albums you track, so reissue titles and release IDs from Subsonic or melody
+match exactly. Turn it on in settings → musicbrainz.
 
-Only `release-group.tar.xz` is downloaded (about 1 GB). Dropwatch checks the
-published version first and skips an already processed dump, unless newly
-tracked artists need their first scan. It verifies the SHA-256 checksum,
-streams the dump with `tar` and `xz`, and keeps the latest verified copy for
-resolving new artists during syncs. Allow space for two compressed dumps in
-`-dump-dir` (the kept one and a download in progress).
+## API
 
-Each artist's first successful scan announces its releases from the last 30
-days. Subsequent scans notify about new canonical albums, EPs and singles released within the
-last 30 days or due in the future. Older additions and undated records still
-update the discography but do not produce notifications. A known upcoming
-release with an exact date gets a release-day reminder at midnight in the
-configured timezone, including upcoming releases in the initial baseline.
-Partial dates never invent a release day. Notifications appear in the web UI;
-no email or external push service is required or contacted.
-
-The updater matches artists by MusicBrainz ID, preserves ownership, aliases
-and Discogs metadata, and commits only complete scans. Reprocessing the same
-dump does not duplicate notifications. While scheduling is enabled, artists
-with a dump baseline use cached discographies when opened; **refresh sources**
-still explicitly fetches live data.
-
-Dropwatch must be running at the scheduled time. A missed run is caught up
-once on startup; failed checks retry at the next scheduled time or via
-**check now**. An active check finishes if scheduling is disabled. Named
-timezones follow daylight saving time; a nonexistent spring-transition time
-is skipped and an autumn overlap runs once. `Local` means the server's timezone.
-
-## Using it from scripts
-
-Artist IDs are MusicBrainz IDs. All responses are JSON. Create an API token
-under settings → Account and send it with every request:
-
-```sh
-export DW="Authorization: Bearer <token>"
-curl -s -H "$DW" localhost:8080/api/artists
-```
+Create a token under settings → account and send it as a bearer token. IDs
+are MusicBrainz IDs.
 
 ```
-GET  /api/search/artists?q=name          search MusicBrainz
-GET  /api/artists                        tracked artists with counts
-GET  /api/artists/{id}/releases          one artist's releases
-       ?missing=only  ?types=all  ?refresh=1
+GET    /api/search/artists?q=name        search MusicBrainz
+GET    /api/artists                      tracked artists with counts
+GET    /api/artists/{id}/releases        ?missing=only  ?types=all  ?refresh=1
 DELETE /api/artists/{id}                 untrack
-GET  /api/library                        everything owned
-PUT  /api/releases/{id}/state            {"state": "owned" | "ignored" | ""}
-POST /api/sync                           push your library as JSON (see below)
-POST /api/sync/library                   pull from all enabled sources (background job)
-       ?artist=name  ?exact=1  ?skip_existing=1
-GET  /api/sync/status                    progress of the running sync
-GET  /api/dumps                          dump schedules and download status
-PUT  /api/dumps/schedule                 {"enabled":true,"days":[0,4],"time":"04:00","timezone":"Europe/Berlin"}
-POST /api/dumps/check                    check/download the latest release-group dump now
-PUT  /api/dumps/releases                 {"enabled":true,"intervalDays":30}
-POST /api/dumps/releases/check           download release titles now
-GET  /api/notifications                  latest 200 notifications and unread count
-       ?types=Album,EP,Single
-POST /api/notifications/read             mark due notifications read (same ?types=)
-POST /api/notifications/{id}/read        mark one notification read
-GET  /api/settings, PUT /api/settings    sources and Discogs (secrets are write-only)
+GET    /api/library                      everything owned
+PUT    /api/releases/{id}/state          {"state": "owned" | "ignored" | ""}
+POST   /api/sync                         push a library as JSON
+POST   /api/sync/library                 sync enabled sources  ?artist=  ?exact=1  ?skip_existing=1
+GET    /api/sync/status
+GET    /api/notifications                ?types=Album,EP,Single
+POST   /api/notifications/read           all (same ?types=)
+POST   /api/notifications/{id}/read
+GET    /api/dumps                        schedules and download status
+PUT    /api/dumps/schedule               {"enabled":true,"days":[0,4],"time":"04:00","timezone":"Europe/Berlin"}
+POST   /api/dumps/check
+PUT    /api/dumps/releases               {"enabled":true,"intervalDays":30}
+POST   /api/dumps/releases/check
+GET    /api/settings                     PUT to change; secrets are write-only
 ```
 
-Find missing albums from a script:
-
 ```sh
-mbid=$(curl -s -H "$DW" "localhost:8080/api/search/artists?q=boards+of+canada" | jq -r '.artists[0].id')
-curl -s -H "$DW" "localhost:8080/api/artists/$mbid/releases?missing=only" \
+auth="Authorization: Bearer $TOKEN"
+mbid=$(curl -s -H "$auth" "localhost:8080/api/search/artists?q=boards+of+canada" | jq -r '.artists[0].id')
+curl -s -H "$auth" "localhost:8080/api/artists/$mbid/releases?missing=only" \
   | jq -r '.releases[] | "\(.firstReleaseDate[:4]) \(.title)"'
 ```
 
-Push a library without MPD/Subsonic/melody — album entries are either plain titles
-or `{"title": ..., "mbid": "<release-group id>"}`:
+`POST /api/sync` takes `{"artists": [{"name": "...", "albums": ["...", ...]}]}`;
+an album can also be `{"title": "...", "mbid": "<release group id>"}`.
 
-```sh
-curl -s -X POST localhost:8080/api/sync -H "$DW" -H 'Content-Type: application/json' \
-  -d '{"artists": [{"name": "Boards of Canada", "albums": ["Geogaddi", "Twoism EP"]}]}'
-```
+## Flags
 
-## How matching works (short version)
+`-addr` (default `:8080`), `-db` (default `dropwatch.db`) and `-dump-dir`
+(default `<db>.dumps`). Everything else is configured in the web UI.
 
-MusicBrainz already groups all versions of an album into one "release group";
-Discogs does the same with "masters". dropwatch merges the two by normalized
-title, and drops Discogs-only entries that turn out to be bootlegs, promos,
-or repackaged box sets. Your album titles are matched forgivingly — case,
-punctuation and edition suffixes like "(Deluxe Edition)" or ": Edition 2004"
-don't matter — and against the title of every known *version* of each album,
-plus MusicBrainz IDs from your tags when present. If something still doesn't
-match against cached data, the sync re-fetches that artist once and tries
-again, so stale data heals itself.
+The old `-mpd`, `-subsonic`, `-melody` and `-discogs-token` flags and their
+environment variables (`MPD_HOST`, `SUBSONIC_*`, `MELODY_*`, `DISCOGS_TOKEN`)
+are only read when a new database is created, so existing setups carry over.
+`dropwatch import` still bulk-imports from dump files for scripted setups.
 
 ## License
 
-GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE).
+GPL-3.0, see [LICENSE](LICENSE).
