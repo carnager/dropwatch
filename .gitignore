@@ -5,3 +5,7 @@ release-group.tar.xz
 release.tar.xz
 /release
 *.db.dumps/
+/contrib/src/
+/contrib/pkg/
+/contrib/*.tar.gz
+/contrib/*.pkg.tar.*

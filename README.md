@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/carnager/dropwatch/releases/latest">Download</a> ·
+  <a href="#arch-linux">AUR</a> ·
   <a href="#nix">Nix</a> ·
   <a href="#api">API</a> ·
   <a href="LICENSE">GPL-3.0</a>
@@ -37,6 +38,26 @@ go build -o dropwatch ./cmd/dropwatch
 
 `tar` and `xz` need to be installed; they're used to read the MusicBrainz
 dumps.
+
+### Arch Linux
+
+The AUR package is
+[dropwatch-music](https://aur.archlinux.org/packages/dropwatch-music):
+
+```sh
+paru -S dropwatch-music
+sudo systemctl enable --now dropwatch
+```
+
+The service runs as the `dropwatch` user and keeps its data in
+`/var/lib/dropwatch`. Set the listen address with `DROPWATCH_ADDR` in
+`/etc/dropwatch.env` (default `127.0.0.1:8080`). There is also a user unit,
+`systemctl --user enable --now dropwatch`, which stores its data in
+`~/.local/share/dropwatch` and reads `~/.config/dropwatch.env`.
+
+It conflicts with the AUR package `dropwatch`, an unrelated kernel tool that
+installs a binary of the same name. The units and the PKGBUILD are in
+[contrib](contrib).
 
 ### Nix
 
