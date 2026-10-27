@@ -195,8 +195,10 @@ An album can also be `{"title": "...", "mbid": "<release group id>"}`.
 
 ## Flags
 
-`-addr` (default `:8080`), `-db` (default `dropwatch.db`) and `-dump-dir`
-(default `<db>.dumps`). Everything else is configured in the web UI.
+`-addr` (default `:8080`), `-db` (default
+`~/.local/share/dropwatch/dropwatch.db`, or under `$XDG_DATA_HOME`) and
+`-dump-dir` (default `<db>.dumps`). Everything else is configured in the web
+UI.
 
 `-mpd`, `-subsonic`, `-melody` and `-discogs-token`, or the environment
 variables `MPD_HOST`, `MPD_PASSWORD`, `SUBSONIC_URL`, `SUBSONIC_USER`,

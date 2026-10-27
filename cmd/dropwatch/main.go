@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -33,13 +34,39 @@ func main() {
 	}
 }
 
+// defaultDB is $XDG_DATA_HOME/dropwatch/dropwatch.db, so the same database is
+// found wherever dropwatch is started from.
+func defaultDB() string {
+	dir := os.Getenv("XDG_DATA_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "dropwatch.db"
+		}
+		dir = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(dir, "dropwatch", "dropwatch.db")
+}
+
+// openStore opens the database, creating its folder, and says which it is.
+func openStore(path string) (*store.Store, error) {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	log.Printf("database %s", path)
+	return store.Open(path)
+}
+
 func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "import" {
 		runImport(os.Args[2:])
 		return nil
 	}
 	addr := flag.String("addr", ":8080", "listen address")
-	dbPath := flag.String("db", "dropwatch.db", "path to SQLite database")
+	dbPath := flag.String("db", defaultDB(), "path to SQLite database")
 	dumpDir := flag.String("dump-dir", "", "dump download directory (default: <db path>.dumps)")
 	// Everything else is set up in the web UI. These only prefill the
 	// settings of a new database.
@@ -56,7 +83,7 @@ func run() error {
 
 	userAgent := "dropwatch/" + strings.TrimPrefix(version, "v") + " (https://github.com/carnager/dropwatch)"
 
-	st, err := store.Open(*dbPath)
+	st, err := openStore(*dbPath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}

@@ -27,7 +27,7 @@ import (
 // normal live refresh.
 func runImport(args []string) {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
-	dbPath := fs.String("db", "dropwatch.db", "path to SQLite database")
+	dbPath := fs.String("db", defaultDB(), "path to SQLite database")
 	dumpPath := fs.String("dump", "", "path to MusicBrainz release-group JSON dump (release-group.tar.xz or extracted NDJSON)")
 	releaseDump := fs.String("release-dump", "", "optional path to the MusicBrainz release JSON dump (release.tar.xz or extracted NDJSON); adds release-title aliases so reissue-titled rips match")
 	mpdAddr := fs.String("mpd", os.Getenv("MPD_HOST"), "MPD server address (host[:port]); also read from MPD_HOST")
@@ -49,7 +49,7 @@ func runImport(args []string) {
 		}
 	}
 	if *dumpPath == "" || (*mpdAddr == "" && *subsonicURL == "" && *melodyAddr == "") {
-		log.Fatal("usage: dropwatch import -dump release-group.tar.xz [-release-dump release.tar.xz] (-mpd host[:port] | -subsonic URL | -melody host[:port]) [-db dropwatch.db]\n" +
+		log.Fatal("usage: dropwatch import -dump release-group.tar.xz [-release-dump release.tar.xz] (-mpd host[:port] | -subsonic URL | -melody host[:port]) [-db path]\n" +
 			"download the dumps from https://data.metabrainz.org/pub/musicbrainz/data/json-dumps/ (newest date directory)")
 	}
 
@@ -58,7 +58,7 @@ func runImport(args []string) {
 		log.Fatal(err)
 	}
 
-	st, err := store.Open(*dbPath)
+	st, err := openStore(*dbPath)
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
