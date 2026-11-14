@@ -135,7 +135,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/auth/token", s.handleRevokeAPIToken)
 	web, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServerFS(web))
-	return logRequests(s.requireAuth(mux))
+	return logRequests(allowReadOnlyCORS(s.requireAuth(mux)))
 }
 
 func logRequests(next http.Handler) http.Handler {
