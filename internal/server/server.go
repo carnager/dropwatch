@@ -133,6 +133,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/auth/password", s.handleChangePassword)
 	mux.HandleFunc("POST /api/auth/token", s.handleNewAPIToken)
 	mux.HandleFunc("DELETE /api/auth/token", s.handleRevokeAPIToken)
+	mux.HandleFunc("POST /api/auth/feed-token", s.handleNewFeedToken)
+	mux.HandleFunc("DELETE /api/auth/feed-token", s.handleRevokeFeedToken)
 	web, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServerFS(web))
 	return logRequests(allowReadOnlyCORS(s.requireAuth(mux)))

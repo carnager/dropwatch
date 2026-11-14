@@ -31,12 +31,17 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	feedToken, err := s.store.HasFeedToken()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	var auto autoSyncState
 	if err := s.store.LoadDumpSetting("auto_sync", &auto); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"config": s.config().Public(), "apiTokenSet": apiToken, "autoSync": auto})
+	writeJSON(w, http.StatusOK, map[string]any{"config": s.config().Public(), "apiTokenSet": apiToken, "feedTokenSet": feedToken, "autoSync": auto})
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {

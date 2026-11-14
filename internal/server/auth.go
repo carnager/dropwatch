@@ -24,6 +24,12 @@ var publicAPI = map[string]bool{
 	"POST /api/auth/logout": true,
 }
 
+// feedAPI is what the read-only feed token may reach: start pages and widgets
+// that show new releases, without the full API token.
+var feedAPI = map[string]bool{
+	"GET /api/notifications": true,
+}
+
 // requireAuth guards the API: a session cookie (browser) or the API token as
 // "Authorization: Bearer <token>" (scripts, players). The web page itself is
 // public; it shows the setup or login form until the API lets it in.
@@ -35,6 +41,9 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 		if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
 			valid, err := s.store.ValidAPIToken(token)
+			if err == nil && !valid && feedAPI[r.Method+" "+r.URL.Path] {
+				valid, err = s.store.ValidFeedToken(token)
+			}
 			if err != nil {
 				writeErr(w, http.StatusInternalServerError, err.Error())
 				return
@@ -218,6 +227,23 @@ func (s *Server) handleNewAPIToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+func (s *Server) handleNewFeedToken(w http.ResponseWriter, r *http.Request) {
+	token, err := s.store.NewFeedToken()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+func (s *Server) handleRevokeFeedToken(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.RevokeFeedToken(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleRevokeAPIToken(w http.ResponseWriter, r *http.Request) {

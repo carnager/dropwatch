@@ -164,29 +164,47 @@ func (s *Store) DeleteSession(token string) error {
 	return err
 }
 
-// NewAPIToken replaces the API token (for scripts and players) and returns
-// it; only its hash is stored, so it can be shown exactly once.
-func (s *Store) NewAPIToken() (string, error) {
+// Two bearer tokens, each a single hashed setting, shown exactly once:
+// the API token (scripts and players, full access) and the feed token
+// (start pages and widgets, read-only: only what feedAPI in the server allows).
+const (
+	apiTokenKey  = "api_token"
+	feedTokenKey = "feed_token"
+)
+
+// NewAPIToken replaces the API token and returns it.
+func (s *Store) NewAPIToken() (string, error)         { return s.newBearer(apiTokenKey) }
+func (s *Store) RevokeAPIToken() error                { return s.revokeBearer(apiTokenKey) }
+func (s *Store) HasAPIToken() (bool, error)           { return s.hasBearer(apiTokenKey) }
+func (s *Store) ValidAPIToken(t string) (bool, error) { return s.validBearer(apiTokenKey, t) }
+
+// NewFeedToken replaces the read-only feed token and returns it.
+func (s *Store) NewFeedToken() (string, error)         { return s.newBearer(feedTokenKey) }
+func (s *Store) RevokeFeedToken() error                { return s.revokeBearer(feedTokenKey) }
+func (s *Store) HasFeedToken() (bool, error)           { return s.hasBearer(feedTokenKey) }
+func (s *Store) ValidFeedToken(t string) (bool, error) { return s.validBearer(feedTokenKey, t) }
+
+func (s *Store) newBearer(key string) (string, error) {
 	token, hash, err := newToken()
 	if err != nil {
 		return "", err
 	}
-	return token, s.saveSetting("api_token", hash)
+	return token, s.saveSetting(key, hash)
 }
 
-func (s *Store) RevokeAPIToken() error {
-	_, err := s.db.Exec(`DELETE FROM settings WHERE key = 'api_token'`)
+func (s *Store) revokeBearer(key string) error {
+	_, err := s.db.Exec(`DELETE FROM settings WHERE key = ?`, key)
 	return err
 }
 
-func (s *Store) HasAPIToken() (bool, error) {
+func (s *Store) hasBearer(key string) (bool, error) {
 	var hash string
-	return s.loadSetting("api_token", &hash)
+	return s.loadSetting(key, &hash)
 }
 
-func (s *Store) ValidAPIToken(token string) (bool, error) {
+func (s *Store) validBearer(key, token string) (bool, error) {
 	var hash string
-	found, err := s.loadSetting("api_token", &hash)
+	found, err := s.loadSetting(key, &hash)
 	if err != nil || !found || token == "" {
 		return false, err
 	}

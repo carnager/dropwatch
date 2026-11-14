@@ -158,6 +158,12 @@ match exactly. Turn it on in settings → musicbrainz.
 Create a token under settings → account and send it as a bearer token. IDs
 are MusicBrainz IDs.
 
+For start pages and widgets there is a separate, read-only **feed token**
+(settings → account → feed token). It can only `GET /api/notifications`, and
+it is independent of the API token, so making one never breaks the other.
+`GET /api/notifications` also answers cross-origin (`Access-Control-Allow-Origin: *`,
+no credentials), so a page opened as a local file can read it with either token.
+
 | Method | Path | |
 |---|---|---|
 | GET | `/api/search/artists?q=name` | search MusicBrainz |

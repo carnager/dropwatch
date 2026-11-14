@@ -426,10 +426,14 @@
         <div class="fields" id="tokenBox"></div>
       </div>
       <div class="srow">
+        <div class="line"><span class="name">Feed token</span><span class="where" id="feedTokenWhere"></span><button type="button" id="revokeFeedToken" class="hidden">revoke</button><button type="button" id="newFeedToken">create</button></div>
+        <div class="fields" id="feedTokenBox"></div>
+      </div>
+      <div class="srow">
         <div class="line"><span class="name">Session</span><span class="where">this browser</span><button type="button" id="logout">log out</button></div>
       </div>
       <p class="note" id="accountMessage" role="status"></p>
-      <p class="hint">An API token lets scripts and media players use the API: send it as <code>Authorization: Bearer &lt;token&gt;</code>. It is shown once; creating a new one replaces the old. Changing the password logs out other browsers.</p>
+      <p class="hint">An API token lets scripts and media players use the API: send it as <code>Authorization: Bearer &lt;token&gt;</code>. A feed token can only read new releases (<code>GET /api/notifications</code>), for start pages and widgets. Each is shown once; creating a new one replaces the old. Changing the password logs out other browsers.</p>
     </section>
 
     <section id="tab-about" class="settab hidden">
@@ -1189,6 +1193,9 @@ function renderSettings(data) {
   $("tokenWhere").textContent = data.apiTokenSet ? "active" : "none";
   $("revokeToken").classList.toggle("hidden", !data.apiTokenSet);
   $("newToken").textContent = data.apiTokenSet ? "replace" : "create";
+  $("feedTokenWhere").textContent = data.feedTokenSet ? "active" : "none";
+  $("revokeFeedToken").classList.toggle("hidden", !data.feedTokenSet);
+  $("newFeedToken").textContent = data.feedTokenSet ? "replace" : "create";
   sourcesDirty = false;
   $("saveSources").disabled = true;
 }
@@ -1360,26 +1367,31 @@ $("passwordForm").onsubmit = async e => {
   }
 };
 
-$("newToken").onclick = async () => {
-  try {
-    const { token } = await api("/api/auth/token", { method: "POST" });
-    $("tokenBox").replaceChildren(el("p", "hint", "Copy it now; it won't be shown again."), el("div", "token", token));
-    await loadSettings();
-  } catch (err) {
-    $("accountMessage").textContent = err.message;
-  }
-};
-
-$("revokeToken").onclick = async () => {
-  try {
-    await api("/api/auth/token", { method: "DELETE" });
-    $("tokenBox").replaceChildren();
-    $("accountMessage").textContent = "Token revoked.";
-    await loadSettings();
-  } catch (err) {
-    $("accountMessage").textContent = err.message;
-  }
-};
+// The API token and the feed token work alike: created (shown once), replaced, revoked.
+function tokenButtons(prefix, path) {
+  const box = $(prefix + "Box");
+  $("new" + prefix[0].toUpperCase() + prefix.slice(1)).onclick = async () => {
+    try {
+      const { token } = await api(path, { method: "POST" });
+      box.replaceChildren(el("p", "hint", "Copy it now; it won't be shown again."), el("div", "token", token));
+      await loadSettings();
+    } catch (err) {
+      $("accountMessage").textContent = err.message;
+    }
+  };
+  $("revoke" + prefix[0].toUpperCase() + prefix.slice(1)).onclick = async () => {
+    try {
+      await api(path, { method: "DELETE" });
+      box.replaceChildren();
+      $("accountMessage").textContent = "Token revoked.";
+      await loadSettings();
+    } catch (err) {
+      $("accountMessage").textContent = err.message;
+    }
+  };
+}
+tokenButtons("token", "/api/auth/token");
+tokenButtons("feedToken", "/api/auth/feed-token");
 
 $("logout").onclick = async () => {
   try { await api("/api/auth/logout", { method: "POST" }); } catch {}
