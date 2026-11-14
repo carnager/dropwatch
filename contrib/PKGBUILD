@@ -12,7 +12,7 @@ makedepends=('go>=2:1.27')
 conflicts=('dropwatch')
 backup=('etc/dropwatch.env')
 source=("dropwatch-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('27c9969a3efc9eb07cda3e90b6c7574af36762ac8511a66083cadf6167e1cb53')
 
 prepare() {
   cd "dropwatch-$pkgver"
